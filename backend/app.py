@@ -1177,29 +1177,33 @@ def get_kafka_status():
             'sasl.mechanism': kafka_config.sasl_mechanism,
             'security.protocol': kafka_config.security_protocol,
             'sasl.username': kafka_config.username,
-            'sasl.password': kafka_config.password,
-            'api.version.request': True,
-            'api.version': '0.12.0'
+            'sasl.password': kafka_config.password
         })
         
-        # 브로커 정보 조회 (Future 객체 처리)
-        cluster_metadata = admin_client.describe_cluster()
-        cluster_metadata = cluster_metadata.result()  # Future 완료 대기
-        broker_info = []
+        # list_topics()를 사용하여 메타데이터 조회
+        metadata = admin_client.list_topics(timeout=10)
         
-        for node in cluster_metadata.brokers:
+        # 브로커 정보 추출
+        broker_info = []
+        for node_id, broker in metadata.brokers.items():
             broker_info.append({
-                'node_id': node.nodeId,
-                'host': node.host,
-                'port': node.port,
-                'rack': node.rack
+                'node_id': node_id,
+                'host': broker.host,
+                'port': broker.port,
+                'rack': getattr(broker, 'rack', None)  # rack 정보가 없을 수 있음
             })
         
-        # 토픽 목록 조회 (Future 객체 처리)
-        topics = admin_client.list_topics()
-        topics = topics.result()  # Future 완료 대기
+        # 토픽 정보 추출
+        topic_list = []
+        for topic_name, topic_metadata in metadata.topics.items():
+            topic_info = {
+                'name': topic_name,
+                'partitions': len(topic_metadata.partitions) if topic_metadata.partitions else 0,
+                'error': str(topic_metadata.error) if topic_metadata.error else None
+            }
+            topic_list.append(topic_info)
         
-        admin_client.close()
+        # AdminClient는 close() 메서드가 없으므로 제거
         
         return jsonify({
             "status": "success",
@@ -1211,9 +1215,13 @@ def get_kafka_status():
             },
             "cluster_info": {
                 "brokers": broker_info,
-                "broker_count": len(broker_info)
+                "broker_count": len(broker_info),
+                "cluster_id": getattr(metadata, 'cluster_id', 'unknown')
             },
-            "topics": list(topics),
+            "topics": {
+                "count": len(topic_list),
+                "details": topic_list
+            },
             "timestamp": datetime.now().isoformat()
         })
         
@@ -1224,7 +1232,6 @@ def get_kafka_status():
             "message": f"Kafka 상태 조회 실패: {str(e)}",
             "timestamp": datetime.now().isoformat()
         }), 500
-
 
 if __name__ == '__main__':
     logger.info("=== Flask 앱 시작 ===")

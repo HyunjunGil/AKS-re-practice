@@ -114,12 +114,16 @@
             
             <div class="test-details">
               <h4>세부 테스트 결과:</h4>
-              <div v-for="(name, test) in kafkaTestResult.tests" :key="name" class="test-item">
+              <div v-for="(test, name) in kafkaTestResult.tests" :key="name" class="test-item">
                 <div class="test-name">{{ getTestName(name) }}</div>
                 <div class="test-status" :class="test.status">
                   <span v-if="test.status === 'success'" class="status-success">✅</span>
                   <span v-else class="status-error">❌</span>
                   {{ test.message }}
+                </div>
+                <!-- 디버깅용: 실제 데이터 구조 표시 -->
+                <div class="debug-data">
+                  <small>Debug: status={{ test.status }}, message={{ test.message }}</small>
                 </div>
               </div>
             </div>
@@ -546,6 +550,15 @@ export default {
         this.kafkaTestResult = response.data;
         
         console.log('Kafka 종합 연결 테스트 완료:', response.data);
+        console.log('테스트 결과 구조:', JSON.stringify(response.data.tests, null, 2));
+        
+        // 각 테스트 결과의 status 확인
+        Object.keys(response.data.tests).forEach(testName => {
+          const test = response.data.tests[testName];
+          console.log(`${testName} 테스트:`, test);
+          console.log(`${testName} status:`, test.status);
+        });
+        
       } catch (error) {
         console.error('Kafka 종합 연결 테스트 실패:', error);
         this.kafkaTestResult = {
