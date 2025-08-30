@@ -925,60 +925,58 @@ def _test_kafka_basic_connection():
 
 
 def _test_kafka_producer_simple():
-    """Kafka Producer 생성 테스트 - 실제 메시지 전송 없이 생성만"""
+    """Producer 실제 연결 테스트로 변경"""
     try:
         producer = kafka_manager.get_producer()
         
-        # Producer 객체가 성공적으로 생성되었는지만 확인
-        if producer:
-            logger.info("Kafka Producer 생성 성공")
-            # confluent-kafka Producer는 close() 메서드가 없음
-            # flush()로 메시지 전송 완료 후 정리
+        # 실제 연결 확인을 위해 메타데이터 조회
+        metadata = producer.list_topics(timeout=10)
+        if metadata.brokers:  # 브로커 정보가 있으면 연결 성공
+            logger.info(f"Kafka Producer 연결 성공 - {len(metadata.brokers)}개 브로커 발견")
             producer.flush()
             return {
                 "status": "success",
-                "message": "Producer 생성 성공",
+                "message": f"Producer 연결 성공 (브로커 {len(metadata.brokers)}개)",
                 "bootstrap_servers": kafka_config.bootstrap_servers
             }
         else:
-            logger.error("Kafka Producer 생성 실패")
             return {
                 "status": "error",
-                "message": "Producer 생성 실패"
+                "message": "Producer 연결 실패 - 브로커 정보 없음"
             }
     except Exception as e:
-        logger.error(f"Producer 생성 테스트 오류: {str(e)}")
+        logger.error(f"Producer 테스트 오류: {str(e)}")
         return {
             "status": "error",
-            "message": f"Producer 생성 실패: {str(e)}"
+            "message": f"Producer 연결 실패: {str(e)}"
         }
 
-
 def _test_kafka_consumer_simple():
-    """Kafka Consumer 생성 테스트 - 실제 메시지 수신 없이 생성만"""
+    """Consumer 실제 연결 테스트로 변경"""
     try:
         consumer = kafka_manager.get_consumer('test-topic', 'test-group')
         
-        # Consumer 객체가 성공적으로 생성되었는지만 확인
-        if consumer:
-            logger.info("Kafka Consumer 생성 성공")
-            consumer.close()  # Consumer는 close() 메서드가 있음
+        # 실제 연결 확인을 위해 메타데이터 조회
+        metadata = consumer.list_topics(timeout=10)
+        consumer.close()
+        
+        if metadata.brokers:
+            logger.info(f"Kafka Consumer 연결 성공 - {len(metadata.brokers)}개 브로커 발견")
             return {
                 "status": "success",
-                "message": "Consumer 생성 성공",
+                "message": f"Consumer 연결 성공 (브로커 {len(metadata.brokers)}개)",
                 "bootstrap_servers": kafka_config.bootstrap_servers
             }
         else:
-            logger.error("Kafka Consumer 생성 실패")
             return {
                 "status": "error",
-                "message": "Consumer 생성 실패"
+                "message": "Consumer 연결 실패 - 브로커 정보 없음"
             }
     except Exception as e:
-        logger.error(f"Consumer 생성 테스트 오류: {str(e)}")
+        logger.error(f"Consumer 테스트 오류: {str(e)}")
         return {
             "status": "error",
-            "message": f"Consumer 생성 실패: {str(e)}"
+            "message": f"Consumer 연결 실패: {str(e)}"
         }
 
 def _test_kafka_producer():
