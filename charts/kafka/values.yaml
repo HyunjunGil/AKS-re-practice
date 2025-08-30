@@ -30,13 +30,13 @@ sasl:
   client:
     users:
       - user1
-    passwords: "Ytmsc1amZl"  # 빈 문자열 절대 사용 금지
+    passwords: "hyunjun-kafka"  # 빈 문자열 절대 사용 금지
   interbroker:
     user: inter_broker_user
     password: ""
   controller:
     user: controller_user
-    password: "침"
+    password: ""
   # existingSecret 사용하지 않음 (템플릿 버그 회피)
 
 # KRaft 모드 활성화 (Zookeeper 대신)

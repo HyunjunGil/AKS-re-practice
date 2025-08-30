@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: backend
-  namespace: default
+  namespace: hyunjun
 spec:
   replicas: 1
   selector:
@@ -15,24 +15,26 @@ spec:
     spec:
       containers:
       - name: backend
-        image: giglepeople/aks-test-app-backend:latest
-        # imagePullPolicy: Never
+        image: hyunjun-backend:latest
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 5000
         env:
         - name: MYSQL_HOST
-          value: "my-mariadb"
+          value: "local-mariadb.infra.svc.cluster.local"
         - name: MYSQL_USER
           value: "testuser"
+        - name: MYSQL_DATABASE
+          value: "testdb"
         - name: MYSQL_PASSWORD
           valueFrom:
             secretKeyRef:
               name: backend-secrets
               key: MYSQL_PASSWORD
         - name: REDIS_HOST
-          value: "my-redis-master"
+          value: "local-redis-master.infra.svc.cluster.local"
         - name: KAFKA_SERVERS
-          value: "my-kafka:9092"
+          value: "local-kafka.infra.svc.cluster.local:9092"
         - name: REDIS_PASSWORD
           valueFrom:
             secretKeyRef:
@@ -55,7 +57,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: backend-service
-  namespace: default
+  namespace: hyunjun
 spec:
   type: ClusterIP
   selector:
