@@ -248,6 +248,24 @@
                 </tr>
               </tbody>
             </table>
+            
+            <!-- Kafka 로그 페이지네이션 UI -->
+            <div class="pagination" v-if="kafkaLogs.length > 0">
+              <button 
+                @click="loadMoreKafkaLogs" 
+                :disabled="!hasMoreKafkaLogs || kafkaLogsLoading"
+                class="load-more-btn"
+              >
+                {{ kafkaLogsLoading ? '로딩 중...' : '더 보기' }}
+              </button>
+              
+              <div class="pagination-info">
+                <span>현재 {{ kafkaLogs.length }}개 표시</span>
+                <span v-if="kafkaLogsDebugInfo && kafkaLogsDebugInfo.total_count" class="total-count">
+                  (전체 {{ kafkaLogsDebugInfo.total_count }}개)
+                </span>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -344,7 +362,12 @@ export default {
       kafkaSimpleTestResult: null,
       kafkaTestResult: null,
       kafkaStatus: null,
-      kafkaLogs: []
+      kafkaLogs: [],
+      // Kafka 로그 페이지네이션 관련 변수들
+      kafkaLogsOffset: 0,
+      kafkaLogsLimit: 20,
+      hasMoreKafkaLogs: true,
+      kafkaLogsDebugInfo: null
     }
   },
   methods: {
@@ -710,19 +733,68 @@ export default {
       }
     },
 
-    // Kafka 로그 조회
-    async getKafkaLogs() {
+    // Kafka 로그 조회 (페이지네이션 적용)
+    async getKafkaLogs(resetPagination = false) {
+      if (resetPagination) {
+        this.kafkaLogsOffset = 0;
+        this.hasMoreKafkaLogs = true;
+      }
+      
       try {
         this.kafkaLogsLoading = true;
-        this.kafkaLogs = [];
         
-        const response = await axios.get(`${API_BASE_URL}/logs/kafka`);
-        this.kafkaLogs = response.data;
+        if (resetPagination) {
+          this.kafkaLogs = [];
+        }
+        
+        const response = await axios.get(`${API_BASE_URL}/logs/kafka?offset=${this.kafkaLogsOffset}&limit=${this.kafkaLogsLimit}`);
+        
+        // 새로운 응답 형식 처리
+        if (response.data.status === 'success' && response.data.results) {
+          if (resetPagination) {
+            this.kafkaLogs = response.data.results;
+          } else {
+            this.kafkaLogs = [...this.kafkaLogs, ...response.data.results];
+          }
+          this.hasMoreKafkaLogs = response.data.has_more;
+          console.log(`Kafka 로그 조회 성공: ${response.data.count}개 로드, hasMore: ${this.hasMoreKafkaLogs}`);
+        } else {
+          // 기존 형식 호환성 유지
+          this.kafkaLogs = response.data;
+          this.hasMoreKafkaLogs = response.data.length === this.kafkaLogsLimit;
+        }
+        
+        // 디버깅 정보 저장
+        this.kafkaLogsDebugInfo = {
+          count: response.data.count || response.data.length || 0,
+          total_count: response.data.total_count || response.data.length || 0,
+          status: response.data.status || 'success'
+        };
         
         console.log('Kafka 로그 조회 완료:', response.data);
       } catch (error) {
         console.error('Kafka 로그 조회 실패:', error);
         alert('Kafka 로그 조회에 실패했습니다.');
+      } finally {
+        this.kafkaLogsLoading = false;
+      }
+    },
+
+    // Kafka 로그 페이지네이션을 위한 추가 데이터 로드
+    async loadMoreKafkaLogs() {
+      try {
+        this.kafkaLogsLoading = true;
+        const response = await axios.get(`${API_BASE_URL}/logs/kafka?offset=${this.kafkaLogsOffset + this.kafkaLogsLimit}&limit=${this.kafkaLogsLimit}`);
+        
+        if (response.data.status === 'success' && response.data.results) {
+          // 기존 데이터에 새 데이터 추가
+          this.kafkaLogs = [...this.kafkaLogs, ...response.data.results];
+          this.kafkaLogsOffset += this.kafkaLogsLimit;
+          this.hasMoreKafkaLogs = response.data.has_more;
+          console.log(`Kafka 로그 추가 로드: ${response.data.results.length}개, 전체 ${this.kafkaLogs.length}개`);
+        }
+      } catch (error) {
+        console.error('Kafka 로그 추가 데이터 로드 실패:', error);
       } finally {
         this.kafkaLogsLoading = false;
       }

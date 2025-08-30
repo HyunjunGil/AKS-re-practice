@@ -858,8 +858,16 @@ def clear_cache():
 @app.route('/logs/kafka', methods=['GET'])
 @login_required
 def get_kafka_logs():
-    """Kafka 로그 조회"""
+    """Kafka 로그 조회 (페이지네이션 적용)"""
     try:
+        # 페이지네이션 파라미터 받기
+        offset = request.args.get('offset', 0, type=int)
+        limit = request.args.get('limit', 20, type=int)
+        
+        # limit 최대값 제한 (성능 보호)
+        if limit > 100:
+            limit = 100
+        
         consumer = kafka_manager.get_consumer('api-logs', 'api-logs-viewer')
         
         logs = []
@@ -867,9 +875,10 @@ def get_kafka_logs():
             # confluent-kafka의 poll 방식 사용
             consumer.subscribe(['api-logs'])
             
-            # 최대 100개 메시지 수집
+            # 최대 1000개 메시지 수집 (전체 개수 파악용)
+            all_logs = []
             message_count = 0
-            while message_count < 100:
+            while message_count < 1000:
                 msg = consumer.poll(timeout=5.0)
                 if msg is None:
                     break
@@ -882,7 +891,7 @@ def get_kafka_logs():
                 
                 try:
                     message_data = json.loads(msg.value().decode('utf-8'))
-                    logs.append({
+                    all_logs.append({
                         'timestamp': message_data['timestamp'],
                         'endpoint': message_data['endpoint'],
                         'method': message_data['method'],
@@ -899,8 +908,23 @@ def get_kafka_logs():
             consumer.close()
         
         # 시간 역순으로 정렬
-        logs.sort(key=lambda x: x['timestamp'], reverse=True)
-        return jsonify(logs)
+        all_logs.sort(key=lambda x: x['timestamp'], reverse=True)
+        
+        # 페이지네이션 적용
+        total_count = len(all_logs)
+        start_idx = offset
+        end_idx = offset + limit
+        logs = all_logs[start_idx:end_idx]
+        
+        return jsonify({
+            "status": "success",
+            "results": logs,
+            "count": len(logs),
+            "total_count": total_count,
+            "offset": offset,
+            "limit": limit,
+            "has_more": offset + limit < total_count
+        })
         
     except Exception as e:
         logger.error(f"Kafka log retrieval error: {str(e)}")
