@@ -65,8 +65,17 @@
             <button @click="searchMessages">검색</button>
             <button @click="getAllMessages" class="view-all-btn">전체 메시지 보기</button>
           </div>
+          
+          <!-- 디버깅 정보 표시 -->
+          <div v-if="debugInfo" class="debug-info">
+            <h4>디버깅 정보:</h4>
+            <p><strong>데이터 출처:</strong> {{ debugInfo.source }}</p>
+            <p><strong>결과 개수:</strong> {{ debugInfo.count }}</p>
+            <p><strong>응답 상태:</strong> {{ debugInfo.status }}</p>
+          </div>
+          
           <div v-if="searchResults.length > 0" class="search-results">
-            <h3>검색 결과:</h3>
+            <h3>검색 결과 ({{ searchResults.length }}개):</h3>
             <table>
               <thead>
                 <tr>
@@ -74,6 +83,7 @@
                   <th>메시지</th>
                   <th>생성 시간</th>
                   <th>사용자</th>
+                  <th>출처</th>
                 </tr>
               </thead>
               <tbody>
@@ -82,6 +92,7 @@
                   <td>{{ result.message }}</td>
                   <td>{{ formatDate(result.created_at) }}</td>
                   <td>{{ result.user_id || '없음' }}</td>
+                  <td>{{ result.source || 'database' }}</td>
                 </tr>
               </tbody>
             </table>
@@ -124,7 +135,8 @@ export default {
       registerPassword: '',
       confirmPassword: '',
       currentUser: null,
-      searchResults: []
+      searchResults: [],
+      debugInfo: null
     }
   },
   methods: {
@@ -162,8 +174,24 @@ export default {
       try {
         this.loading = true;
         const response = await axios.get(`${API_BASE_URL}/db/messages?offset=${this.offset}&limit=${this.limit}`);
-        this.dbData = response.data;
-        this.hasMore = response.data.length === this.limit;
+        
+        // 새로운 응답 형식 처리
+        if (response.data.status === 'success' && response.data.results) {
+          this.dbData = response.data.results;
+          this.hasMore = response.data.results.length === this.limit;
+          console.log(`메시지 조회 성공: ${response.data.source}에서 ${response.data.count}개 로드`);
+        } else {
+          // 기존 형식 호환성 유지
+          this.dbData = response.data;
+          this.hasMore = response.data.length === this.limit;
+        }
+        
+        // 디버깅 정보 저장
+        this.debugInfo = {
+          source: response.data.source || 'legacy',
+          count: response.data.count || response.data.length || 0,
+          status: response.data.status || 'success'
+        };
       } catch (error) {
         console.error('DB 조회 실패:', error);
       } finally {
@@ -238,7 +266,22 @@ export default {
         const response = await axios.get(`${API_BASE_URL}/db/messages/search`, {
           params: { q: this.searchQuery }
         });
-        this.searchResults = response.data;
+        
+        // 새로운 응답 형식 처리
+        if (response.data.status === 'success' && response.data.results) {
+          this.searchResults = response.data.results;
+          console.log(`검색 성공: ${response.data.source}에서 ${response.data.count}개 발견`);
+        } else {
+          // 기존 형식 호환성 유지
+          this.searchResults = response.data;
+        }
+        
+        // 디버깅 정보 저장
+        this.debugInfo = {
+          source: response.data.source || 'legacy',
+          count: response.data.count || response.data.length || 0,
+          status: response.data.status || 'success'
+        };
       } catch (error) {
         console.error('검색 실패:', error);
         alert('검색에 실패했습니다.');
@@ -252,7 +295,22 @@ export default {
       try {
         this.loading = true;
         const response = await axios.get(`${API_BASE_URL}/db/messages`);
-        this.searchResults = response.data;
+        
+        // 새로운 응답 형식 처리
+        if (response.data.status === 'success' && response.data.results) {
+          this.searchResults = response.data.results;
+          console.log(`전체 메시지 로드 성공: ${response.data.source}에서 ${response.data.count}개 로드`);
+        } else {
+          // 기존 형식 호환성 유지
+          this.searchResults = response.data;
+        }
+        
+        // 디버깅 정보 저장
+        this.debugInfo = {
+          source: response.data.source || 'legacy',
+          count: response.data.count || response.data.length || 0,
+          status: response.data.status || 'success'
+        };
       } catch (error) {
         console.error('전체 메시지 로드 실패:', error);
       } finally {
@@ -435,5 +493,28 @@ li {
 
 .view-all-btn:hover {
   background-color: #5a6268;
+}
+
+.debug-info {
+  background-color: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 5px;
+  padding: 15px;
+  margin: 15px 0;
+  font-size: 14px;
+}
+
+.debug-info h4 {
+  margin-top: 0;
+  color: #495057;
+}
+
+.debug-info p {
+  margin: 5px 0;
+  color: #6c757d;
+}
+
+.debug-info strong {
+  color: #495057;
 }
 </style> 
