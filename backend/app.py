@@ -58,17 +58,19 @@ def get_db_connection():
 
 # Redis 연결 함수
 def get_redis_connection():
-    return redis.Redis(
-        host=os.getenv('REDIS_HOST', 'my-redis-master'),
-        # port=6380,
-        port=6379,
-        password=os.getenv('REDIS_PASSWORD'),
-        decode_responses=True,
-        # db=0,
-        # ssl=True,
-        # ssl_cert_reqs=None,
-        # ssl_ca_certs=None
-    )
+
+    try:
+        return redis.Redis(
+            host=os.getenv('REDIS_HOST', 'my-redis-master'),
+            port=6379,
+            password=os.getenv('REDIS_PASSWORD'),
+            decode_responses=True,
+            ssl=True,
+        )
+
+    except Exception as e:
+        app.logger.error(f"Redis 연결 오류: {str(e)}")
+        raise
 
 # Kafka Producer 설정
 def get_kafka_producer():
