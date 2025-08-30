@@ -91,4 +91,35 @@ CREATE TABLE messages (
 ## 모니터링
 - API 호출 로그 저장 및 조회
 - 사용자 행동 추적
-- 시스템 성능 모니터링 
+- 시스템 성능 모니터링
+
+## Kafka 연결 테스트
+
+### API 엔드포인트를 통한 테스트
+- `GET /kafka/test`: 종합 연결 테스트
+- `GET /kafka/status`: 클러스터 상태 조회
+
+### Azure Event Hubs 환경 변수 설정
+```yaml
+# Azure Event Hubs 연결 시
+- KAFKA_SERVERS: your-namespace.servicebus.windows.net:9093
+- KAFKA_USERNAME: $ConnectionString
+- KAFKA_PASSWORD: Endpoint=sb://your-namespace.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=your-key
+- SECURITY_PROTOCOL: SASL_SSL
+- SASL_MECHANISM: PLAIN
+```
+
+## Azure Event Hubs 호환성
+이 프로젝트는 **confluent-kafka** 라이브러리를 사용하여 Azure Event Hubs와의 호환성을 보장합니다.
+
+### 호환성 장점
+- **프로토콜 호환**: Kafka 프로토콜을 통한 완벽한 호환성
+- **성능 최적화**: C 기반 라이브러리로 높은 처리량
+- **안정성**: 프로덕션 환경에서 검증된 라이브러리
+- **마이그레이션 용이**: 로컬 Kafka에서 Azure Event Hubs로 쉽게 전환 가능
+
+### 마이그레이션 가이드
+1. **환경 변수 변경**: 위의 Azure Event Hubs 환경 변수로 설정
+2. **보안 프로토콜 변경**: `SASL_SSL`로 변경 (포트 9093)
+3. **연결 문자열 설정**: Azure Portal에서 제공하는 연결 문자열 사용
+4. **테스트 실행**: `/kafka/test` 엔드포인트로 연결 상태 확인

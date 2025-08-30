@@ -59,6 +59,159 @@
         </div>
 
         <div class="section">
+          <h2>Kafka 연결 상태</h2>
+          <div class="kafka-controls">
+            <button @click="testKafkaConnectionSimple" :disabled="kafkaSimpleTesting" class="kafka-simple-btn">
+              {{ kafkaSimpleTesting ? '테스트 중...' : '단순 연결 테스트' }}
+            </button>
+            <button @click="testKafkaConnection" :disabled="kafkaTesting" class="kafka-test-btn">
+              {{ kafkaTesting ? '테스트 중...' : '종합 연결 테스트' }}
+            </button>
+            <button @click="getKafkaStatus" :disabled="kafkaStatusLoading" class="kafka-status-btn">
+              {{ kafkaStatusLoading ? '상태 확인 중...' : '상태 조회' }}
+            </button>
+            <button @click="getKafkaLogs" :disabled="kafkaLogsLoading" class="kafka-logs-btn">
+              {{ kafkaLogsLoading ? '로그 조회 중...' : 'Kafka 로그' }}
+            </button>
+          </div>
+
+          <!-- Kafka 단순 연결 테스트 결과 -->
+          <div v-if="kafkaSimpleTestResult" class="kafka-test-result">
+            <h3>단순 연결 테스트 결과:</h3>
+            <div class="test-status" :class="kafkaSimpleTestResult.status">
+              <strong>전체 상태:</strong> 
+              <span v-if="kafkaSimpleTestResult.status === 'success'" class="status-success">✅ 성공</span>
+              <span v-else-if="kafkaSimpleTestResult.status === 'partial_success'" class="status-partial">⚠️ 부분 성공</span>
+              <span v-else class="status-error">❌ 실패</span>
+            </div>
+            
+            <div class="test-details">
+              <h4>세부 테스트 결과:</h4>
+              <div v-for="(test, name) in kafkaSimpleTestResult.tests" :key="name" class="test-item">
+                <div class="test-name">{{ getSimpleTestName(name) }}</div>
+                <div class="test-status" :class="test.status">
+                  <span v-if="test.status === 'success'" class="status-success">✅</span>
+                  <span v-else class="status-error">❌</span>
+                  {{ test.message }}
+                </div>
+              </div>
+            </div>
+            
+            <div class="test-timestamp">
+              <small>테스트 시간: {{ formatDate(kafkaSimpleTestResult.timestamp) }}</small>
+            </div>
+          </div>
+
+          <!-- Kafka 종합 테스트 결과 -->
+          <div v-if="kafkaTestResult" class="kafka-test-result">
+            <h3>연결 테스트 결과:</h3>
+            <div class="test-status" :class="kafkaTestResult.status">
+              <strong>전체 상태:</strong> 
+              <span v-if="kafkaTestResult.status === 'success'" class="status-success">✅ 성공</span>
+              <span v-else-if="kafkaTestResult.status === 'partial_success'" class="status-partial">⚠️ 부분 성공</span>
+              <span v-else class="status-error">❌ 실패</span>
+            </div>
+            
+            <div class="test-details">
+              <h4>세부 테스트 결과:</h4>
+              <div v-for="(name, test) in kafkaTestResult.tests" :key="name" class="test-item">
+                <div class="test-name">{{ getTestName(name) }}</div>
+                <div class="test-status" :class="test.status">
+                  <span v-if="test.status === 'success'" class="status-success">✅</span>
+                  <span v-else class="status-error">❌</span>
+                  {{ test.message }}
+                </div>
+              </div>
+            </div>
+            
+            <div class="test-timestamp">
+              <small>테스트 시간: {{ formatDate(kafkaTestResult.timestamp) }}</small>
+            </div>
+          </div>
+
+          <!-- Kafka 상태 정보 -->
+          <div v-if="kafkaStatus" class="kafka-status">
+            <h3>클러스터 상태:</h3>
+            <div class="status-grid">
+              <div class="status-item">
+                <strong>브로커 수:</strong> {{ kafkaStatus.cluster_info.broker_count }}
+              </div>
+              <div class="status-item">
+                <strong>토픽 수:</strong> {{ kafkaStatus.topics.length }}
+              </div>
+              <div class="status-item">
+                <strong>보안 프로토콜:</strong> {{ kafkaStatus.kafka_config.security_protocol }}
+              </div>
+              <div class="status-item">
+                <strong>SASL 메커니즘:</strong> {{ kafkaStatus.kafka_config.sasl_mechanism }}
+              </div>
+            </div>
+            
+            <div v-if="kafkaStatus.cluster_info.brokers.length" class="broker-list">
+              <h4>브로커 정보:</h4>
+              <table class="broker-table">
+                <thead>
+                  <tr>
+                    <th>Node ID</th>
+                    <th>Host</th>
+                    <th>Port</th>
+                    <th>Rack</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="broker in kafkaStatus.cluster_info.brokers" :key="broker.node_id">
+                    <td>{{ broker.node_id }}</td>
+                    <td>{{ broker.host }}</td>
+                    <td>{{ broker.port }}</td>
+                    <td>{{ broker.rack || '-' }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            
+            <div v-if="kafkaStatus.topics.length" class="topic-list">
+              <h4>토픽 목록:</h4>
+              <div class="topic-tags">
+                <span v-for="topic in kafkaStatus.topics" :key="topic" class="topic-tag">
+                  {{ topic }}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Kafka 로그 -->
+          <div v-if="kafkaLogs.length" class="kafka-logs">
+            <h3>Kafka 로그 ({{ kafkaLogs.length }}개):</h3>
+            <table class="kafka-logs-table">
+              <thead>
+                <tr>
+                  <th>시간</th>
+                  <th>엔드포인트</th>
+                  <th>메서드</th>
+                  <th>상태</th>
+                  <th>사용자</th>
+                  <th>메시지</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="log in kafkaLogs" :key="log.timestamp + log.user_id" class="log-row">
+                  <td>{{ formatDate(log.timestamp) }}</td>
+                  <td>{{ log.endpoint }}</td>
+                  <td>{{ log.method }}</td>
+                  <td>
+                    <span :class="'status-' + log.status" class="status-badge">
+                      {{ log.status }}
+                    </span>
+                  </td>
+                  <td>{{ log.user_id }}</td>
+                  <td>{{ log.message }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="section">
           <h2>메시지 검색</h2>
           <div class="search-section">
             <input v-model="searchQuery" placeholder="메시지 검색">
@@ -136,7 +289,16 @@ export default {
       confirmPassword: '',
       currentUser: null,
       searchResults: [],
-      debugInfo: null
+      debugInfo: null,
+      // Kafka 관련 변수들
+      kafkaSimpleTesting: false,
+      kafkaTesting: false,
+      kafkaStatusLoading: false,
+      kafkaLogsLoading: false,
+      kafkaSimpleTestResult: null,
+      kafkaTestResult: null,
+      kafkaStatus: null,
+      kafkaLogs: []
     }
   },
   methods: {
@@ -350,6 +512,107 @@ export default {
           ? error.response.data.message 
           : '회원가입에 실패했습니다.');
       }
+    },
+
+    // Kafka 단순 연결 테스트
+    async testKafkaConnectionSimple() {
+      try {
+        this.kafkaSimpleTesting = true;
+        this.kafkaSimpleTestResult = null;
+        
+        const response = await axios.get(`${API_BASE_URL}/kafka/connect`);
+        this.kafkaSimpleTestResult = response.data;
+        
+        console.log('Kafka 단순 연결 테스트 완료:', response.data);
+      } catch (error) {
+        console.error('Kafka 단순 연결 테스트 실패:', error);
+        this.kafkaSimpleTestResult = {
+          status: 'error',
+          message: (error.response && error.response.data && error.response.data.message) || '단순 연결 테스트에 실패했습니다.',
+          timestamp: new Date().toISOString()
+        };
+      } finally {
+        this.kafkaSimpleTesting = false;
+      }
+    },
+
+    // Kafka 종합 연결 테스트
+    async testKafkaConnection() {
+      try {
+        this.kafkaTesting = true;
+        this.kafkaTestResult = null;
+        
+        const response = await axios.get(`${API_BASE_URL}/kafka/test`);
+        this.kafkaTestResult = response.data;
+        
+        console.log('Kafka 종합 연결 테스트 완료:', response.data);
+      } catch (error) {
+        console.error('Kafka 종합 연결 테스트 실패:', error);
+        this.kafkaTestResult = {
+          status: 'error',
+          message: (error.response && error.response.data && error.response.data.message) || '종합 연결 테스트에 실패했습니다.',
+          timestamp: new Date().toISOString()
+        };
+      } finally {
+        this.kafkaTesting = false;
+      }
+    },
+
+    // Kafka 상태 조회
+    async getKafkaStatus() {
+      try {
+        this.kafkaStatusLoading = true;
+        this.kafkaStatus = null;
+        
+        const response = await axios.get(`${API_BASE_URL}/kafka/status`);
+        this.kafkaStatus = response.data;
+        
+        console.log('Kafka 상태 조회 완료:', response.data);
+      } catch (error) {
+        console.error('Kafka 상태 조회 실패:', error);
+        alert('Kafka 상태 조회에 실패했습니다.');
+      } finally {
+        this.kafkaStatusLoading = false;
+      }
+    },
+
+    // Kafka 로그 조회
+    async getKafkaLogs() {
+      try {
+        this.kafkaLogsLoading = true;
+        this.kafkaLogs = [];
+        
+        const response = await axios.get(`${API_BASE_URL}/logs/kafka`);
+        this.kafkaLogs = response.data;
+        
+        console.log('Kafka 로그 조회 완료:', response.data);
+      } catch (error) {
+        console.error('Kafka 로그 조회 실패:', error);
+        alert('Kafka 로그 조회에 실패했습니다.');
+      } finally {
+        this.kafkaLogsLoading = false;
+      }
+    },
+
+    // 테스트 이름을 한글로 변환
+    getTestName(testName) {
+      const testNames = {
+        'producer': 'Producer 연결',
+        'consumer': 'Consumer 연결',
+        'topic_creation': '토픽 생성',
+        'message_flow': '메시지 흐름'
+      };
+      return testNames[testName] || testName;
+    },
+
+    // 단순 테스트 이름을 한글로 변환
+    getSimpleTestName(testName) {
+      const testNames = {
+        'basic_connection': '기본 연결',
+        'producer_creation': 'Producer 생성',
+        'consumer_creation': 'Consumer 생성'
+      };
+      return testNames[testName] || testName;
     }
   }
 }
@@ -516,5 +779,229 @@ li {
 
 .debug-info strong {
   color: #495057;
+}
+
+/* Kafka 관련 스타일 */
+.kafka-controls {
+  margin-bottom: 20px;
+}
+
+.kafka-simple-btn {
+  background-color: #28a745;
+}
+
+.kafka-simple-btn:hover {
+  background-color: #218838;
+}
+
+.kafka-test-btn {
+  background-color: #17a2b8;
+}
+
+.kafka-test-btn:hover {
+  background-color: #138496;
+}
+
+.kafka-status-btn {
+  background-color: #6f42c1;
+}
+
+.kafka-status-btn:hover {
+  background-color: #5a32a3;
+}
+
+.kafka-logs-btn {
+  background-color: #fd7e14;
+}
+
+.kafka-logs-btn:hover {
+  background-color: #e8690b;
+}
+
+.kafka-test-result {
+  background-color: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 5px;
+  padding: 20px;
+  margin: 20px 0;
+}
+
+.test-status {
+  margin-bottom: 15px;
+  padding: 10px;
+  border-radius: 5px;
+}
+
+.test-status.success {
+  background-color: #d4edda;
+  border: 1px solid #c3e6cb;
+  color: #155724;
+}
+
+.test-status.partial_success {
+  background-color: #fff3cd;
+  border: 1px solid #ffeaa7;
+  color: #856404;
+}
+
+.test-status.error {
+  background-color: #f8d7da;
+  border: 1px solid #f5c6cb;
+  color: #721c24;
+}
+
+.test-details {
+  margin: 20px 0;
+}
+
+.test-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px;
+  margin: 5px 0;
+  background-color: white;
+  border-radius: 3px;
+  border: 1px solid #dee2e6;
+}
+
+.test-name {
+  font-weight: bold;
+  color: #495057;
+}
+
+.test-status {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.test-status .status-success {
+  color: #28a745;
+}
+
+.test-status .status-error {
+  color: #dc3545;
+}
+
+.test-timestamp {
+  text-align: right;
+  color: #6c757d;
+  font-style: italic;
+}
+
+.kafka-status {
+  background-color: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 5px;
+  padding: 20px;
+  margin: 20px 0;
+}
+
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 15px;
+  margin: 20px 0;
+}
+
+.status-item {
+  background-color: white;
+  padding: 15px;
+  border-radius: 5px;
+  border: 1px solid #dee2e6;
+}
+
+.broker-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 15px 0;
+}
+
+.broker-table th,
+.broker-table td {
+  padding: 10px;
+  text-align: left;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.broker-table th {
+  background-color: #e9ecef;
+  font-weight: bold;
+}
+
+.topic-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 15px 0;
+}
+
+.topic-tag {
+  background-color: #007bff;
+  color: white;
+  padding: 5px 10px;
+  border-radius: 15px;
+  font-size: 12px;
+}
+
+.kafka-logs-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 15px 0;
+}
+
+.kafka-logs-table th,
+.kafka-logs-table td {
+  padding: 8px;
+  text-align: left;
+  border-bottom: 1px solid #dee2e6;
+  font-size: 14px;
+}
+
+.kafka-logs-table th {
+  background-color: #e9ecef;
+  font-weight: bold;
+}
+
+.log-row:hover {
+  background-color: #f5f5f5;
+}
+
+.status-badge {
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: bold;
+  text-transform: uppercase;
+}
+
+.status-success {
+  background-color: #d4edda;
+  color: #155724;
+}
+
+.status-error {
+  background-color: #f8d7da;
+  color: #721c24;
+}
+
+/* 반응형 디자인 */
+@media (max-width: 768px) {
+  .status-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .kafka-controls button {
+    display: block;
+    width: 100%;
+    margin-bottom: 10px;
+  }
+  
+  .test-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
 }
 </style> 

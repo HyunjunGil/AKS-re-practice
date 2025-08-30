@@ -5,7 +5,8 @@ import mysql.connector
 import json
 from datetime import datetime
 import os
-from kafka import KafkaProducer, KafkaConsumer
+from confluent_kafka import Producer, Consumer, KafkaError, KafkaException
+from confluent_kafka.admin import AdminClient, NewTopic, ConfigResource
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
 from threading import Thread
@@ -144,29 +145,32 @@ class KafkaManager:
     
     def get_producer(self):
         """Kafka Producer 반환"""
-        return KafkaProducer(
-            bootstrap_servers=self.config.bootstrap_servers,
-            value_serializer=lambda v: json.dumps(v).encode('utf-8'),
-            security_protocol=self.config.security_protocol,
-            sasl_mechanism=self.config.sasl_mechanism,
-            sasl_plain_username=self.config.username,
-            sasl_plain_password=self.config.password
-        )
+        return Producer({
+            'bootstrap.servers': self.config.bootstrap_servers,
+            'sasl.mechanism': self.config.sasl_mechanism,
+            'security.protocol': self.config.security_protocol,
+            'sasl.username': self.config.username,
+            'sasl.password': self.config.password,
+            'client.id': 'app-producer',
+            'delivery.timeout.ms': 30000,
+            'request.timeout.ms': 30000
+        })
     
     def get_consumer(self, topic: str, group_id: str = 'default'):
         """Kafka Consumer 반환"""
-        return KafkaConsumer(
-            topic,
-            bootstrap_servers=self.config.bootstrap_servers,
-            value_deserializer=lambda m: json.loads(m.decode('utf-8')),
-            security_protocol=self.config.security_protocol,
-            sasl_mechanism=self.config.sasl_mechanism,
-            sasl_plain_username=self.config.username,
-            sasl_plain_password=self.config.password,
-            group_id=group_id,
-            auto_offset_reset='earliest',
-            consumer_timeout_ms=5000
-        )
+        return Consumer({
+            'bootstrap.servers': self.config.bootstrap_servers,
+            'sasl.mechanism': self.config.sasl_mechanism,
+            'security.protocol': self.config.security_protocol,
+            'sasl.username': self.config.username,
+            'sasl.password': self.config.password,
+            'group.id': group_id,
+            'auto.offset.reset': 'earliest',
+            'enable.auto.commit': False,
+            'session.timeout.ms': 60000,
+            'max.poll.interval.ms': 300000,
+            'heartbeat.interval.ms': 30000
+        })
 
 
 class MessageService:
@@ -454,7 +458,7 @@ class LoggingService:
                     'user_id': user_id,
                     'message': f"{user_id}가 {method} {endpoint} 호출 ({status})"
                 }
-                producer.send('api-logs', log_data)
+                producer.produce('api-logs', json.dumps(log_data))
                 producer.flush()
             except Exception as e:
                 logger.error(f"Kafka logging error: {str(e)}")
@@ -756,17 +760,37 @@ def get_kafka_logs():
         
         logs = []
         try:
-            for message in consumer:
-                logs.append({
-                    'timestamp': message.value['timestamp'],
-                    'endpoint': message.value['endpoint'],
-                    'method': message.value['method'],
-                    'status': message.value['status'],
-                    'user_id': message.value['user_id'],
-                    'message': message.value['message']
-                })
-                if len(logs) >= 100:
+            # confluent-kafka의 poll 방식 사용
+            consumer.subscribe(['api-logs'])
+            
+            # 최대 100개 메시지 수집
+            message_count = 0
+            while message_count < 100:
+                msg = consumer.poll(timeout=1.0)
+                if msg is None:
                     break
+                if msg.error():
+                    if msg.error().code() == KafkaError._PARTITION_EOF:
+                        continue
+                    else:
+                        logger.error(f"Consumer error: {msg.error()}")
+                        break
+                
+                try:
+                    message_data = json.loads(msg.value().decode('utf-8'))
+                    logs.append({
+                        'timestamp': message_data['timestamp'],
+                        'endpoint': message_data['endpoint'],
+                        'method': message_data['method'],
+                        'status': message_data['status'],
+                        'user_id': message_data['user_id'],
+                        'message': message_data['message']
+                    })
+                    message_count += 1
+                except (json.JSONDecodeError, KeyError) as e:
+                    logger.warning(f"메시지 파싱 오류: {str(e)}")
+                    continue
+                    
         finally:
             consumer.close()
         
@@ -777,6 +801,429 @@ def get_kafka_logs():
     except Exception as e:
         logger.error(f"Kafka log retrieval error: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/kafka/test', methods=['GET'])
+def test_kafka_connection():
+    """Kafka 연결 테스트"""
+    try:
+        logger.info("Kafka 연결 테스트 시작")
+        
+        # 1. Producer 연결 테스트
+        producer_test_result = _test_kafka_producer()
+        
+        # 2. Consumer 연결 테스트
+        consumer_test_result = _test_kafka_consumer()
+        
+        # 3. 토픽 생성 테스트
+        topic_test_result = _test_kafka_topic_creation()
+        
+        # 4. 메시지 전송/수신 테스트
+        message_test_result = _test_kafka_message_flow()
+        
+        # 전체 테스트 결과 종합
+        overall_status = "success" if all([
+            producer_test_result["status"] == "success",
+            consumer_test_result["status"] == "success",
+            topic_test_result["status"] == "success",
+            message_test_result["status"] == "success"
+        ]) else "partial_success"
+        
+        return jsonify({
+            "status": overall_status,
+            "message": "Kafka 연결 테스트 완료",
+            "tests": {
+                "producer": producer_test_result,
+                "consumer": consumer_test_result,
+                "topic_creation": topic_test_result,
+                "message_flow": message_test_result
+            },
+            "timestamp": datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error(f"Kafka 테스트 중 오류 발생: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": f"Kafka 테스트 실패: {str(e)}",
+            "timestamp": datetime.now().isoformat()
+        }), 500
+
+
+@app.route('/kafka/connect', methods=['GET'])
+def test_kafka_connection_simple():
+    """Kafka 단순 연결 테스트 - 기본 연결만 확인"""
+    try:
+        logger.info("Kafka 단순 연결 테스트 시작")
+        
+        # 1. 기본 연결 테스트 (AdminClient 사용)
+        connection_result = _test_kafka_basic_connection()
+        
+        # 2. Producer 생성 테스트
+        producer_result = _test_kafka_producer_simple()
+        
+        # 3. Consumer 생성 테스트
+        consumer_result = _test_kafka_consumer_simple()
+        
+        # 전체 결과 종합
+        overall_status = "success" if all([
+            connection_result["status"] == "success",
+            producer_result["status"] == "success",
+            consumer_result["status"] == "success"
+        ]) else "partial_success"
+        
+        return jsonify({
+            "status": overall_status,
+            "message": "Kafka 단순 연결 테스트 완료",
+            "tests": {
+                "basic_connection": connection_result,
+                "producer_creation": producer_result,
+                "consumer_creation": consumer_result
+            },
+            "timestamp": datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error(f"Kafka 단순 연결 테스트 중 오류 발생: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": f"Kafka 단순 연결 테스트 실패: {str(e)}",
+            "timestamp": datetime.now().isoformat()
+        }), 500
+
+
+def _test_kafka_basic_connection():
+    """Kafka 기본 연결 테스트 - AdminClient로 클러스터 정보만 조회"""
+    try:
+        admin_client = AdminClient({
+            'bootstrap.servers': kafka_config.bootstrap_servers,
+            'sasl.mechanism': kafka_config.sasl_mechanism,
+            'security.protocol': kafka_config.security_protocol,
+            'sasl.username': kafka_config.username,
+            'sasl.password': kafka_config.password
+        })
+        
+        # list_topics를 사용하여 브로커 정보 조회
+        metadata = admin_client.list_topics(timeout=10)
+        broker_count = len(metadata.brokers)
+        
+        # close() 메서드 제거 - AdminClient는 자동으로 리소스 관리
+        
+        logger.info(f"Kafka 기본 연결 성공 - 브로커 {broker_count}개 연결됨")
+        return {
+            "status": "success",
+            "message": f"기본 연결 성공 (브로커 {broker_count}개)",
+            "bootstrap_servers": kafka_config.bootstrap_servers
+        }
+        
+    except Exception as e:
+        logger.error(f"기본 연결 테스트 오류: {str(e)}")
+        return {
+            "status": "error",
+            "message": f"기본 연결 실패: {str(e)}"
+        }
+
+
+def _test_kafka_producer_simple():
+    """Kafka Producer 생성 테스트 - 실제 메시지 전송 없이 생성만"""
+    try:
+        producer = kafka_manager.get_producer()
+        
+        # Producer 객체가 성공적으로 생성되었는지만 확인
+        if producer:
+            logger.info("Kafka Producer 생성 성공")
+            # confluent-kafka Producer는 close() 메서드가 없음
+            # flush()로 메시지 전송 완료 후 정리
+            producer.flush()
+            return {
+                "status": "success",
+                "message": "Producer 생성 성공",
+                "bootstrap_servers": kafka_config.bootstrap_servers
+            }
+        else:
+            logger.error("Kafka Producer 생성 실패")
+            return {
+                "status": "error",
+                "message": "Producer 생성 실패"
+            }
+    except Exception as e:
+        logger.error(f"Producer 생성 테스트 오류: {str(e)}")
+        return {
+            "status": "error",
+            "message": f"Producer 생성 실패: {str(e)}"
+        }
+
+
+def _test_kafka_consumer_simple():
+    """Kafka Consumer 생성 테스트 - 실제 메시지 수신 없이 생성만"""
+    try:
+        consumer = kafka_manager.get_consumer('test-topic', 'test-group')
+        
+        # Consumer 객체가 성공적으로 생성되었는지만 확인
+        if consumer:
+            logger.info("Kafka Consumer 생성 성공")
+            consumer.close()  # Consumer는 close() 메서드가 있음
+            return {
+                "status": "success",
+                "message": "Consumer 생성 성공",
+                "bootstrap_servers": kafka_config.bootstrap_servers
+            }
+        else:
+            logger.error("Kafka Consumer 생성 실패")
+            return {
+                "status": "error",
+                "message": "Consumer 생성 실패"
+            }
+    except Exception as e:
+        logger.error(f"Consumer 생성 테스트 오류: {str(e)}")
+        return {
+            "status": "error",
+            "message": f"Consumer 생성 실패: {str(e)}"
+        }
+
+def _test_kafka_producer():
+    """Kafka Producer 연결 테스트"""
+    try:
+        producer = kafka_manager.get_producer()
+        
+        # list_topics()를 사용하여 연결 확인
+        metadata = producer.list_topics(timeout=10)
+        if metadata.topics:
+            logger.info("Kafka Producer 연결 성공")
+            producer.flush()
+            return {
+                "status": "success",
+                "message": "Producer 연결 성공",
+                "bootstrap_servers": kafka_config.bootstrap_servers
+            }
+        else:
+            logger.error("Kafka Producer 연결 실패")
+            return {
+                "status": "error",
+                "message": "Producer 연결 실패"
+            }
+    except Exception as e:
+        logger.error(f"Producer 테스트 오류: {str(e)}")
+        return {
+            "status": "error",
+            "message": f"Producer 테스트 오류: {str(e)}"
+        }
+
+
+def _test_kafka_consumer():
+    """Kafka Consumer 연결 테스트"""
+    try:
+        consumer = kafka_manager.get_consumer('test-topic', 'test-group')
+        
+        # list_topics()를 사용하여 연결 확인
+        metadata = consumer.list_topics(timeout=10)
+        if metadata.topics:
+            logger.info("Kafka Consumer 연결 성공")
+            consumer.close()
+            return {
+                "status": "success",
+                "message": "Consumer 연결 성공",
+                "bootstrap_servers": kafka_config.bootstrap_servers
+            }
+        else:
+            logger.error("Kafka Consumer 연결 실패")
+            consumer.close()
+            return {
+                "status": "error",
+                "message": "Consumer 연결 실패"
+            }
+    except Exception as e:
+        logger.error(f"Consumer 테스트 오류: {str(e)}")
+        return {
+            "status": "error",
+            "message": f"Consumer 테스트 오류: {str(e)}"
+        }
+
+def _test_kafka_topic_creation():
+    """Kafka 토픽 생성 테스트"""
+    try:
+        admin_client = AdminClient({
+            'bootstrap.servers': kafka_config.bootstrap_servers,
+            'sasl.mechanism': kafka_config.sasl_mechanism,
+            'security.protocol': kafka_config.security_protocol,
+            'sasl.username': kafka_config.username,
+            'sasl.password': kafka_config.password
+        })
+        
+        # 테스트 토픽 생성
+        test_topic = NewTopic(
+            topic='connection-test-topic',  # 'name' 대신 'topic' 사용
+            num_partitions=1,
+            replication_factor=1
+        )
+        
+        try:
+            # 토픽 생성
+            futures = admin_client.create_topics([test_topic])
+            
+            # Future 완료 대기
+            for topic, future in futures.items():
+                try:
+                    future.result()  # 각 토픽별로 결과 확인
+                    logger.info(f"테스트 토픽 '{topic}' 생성 성공")
+                except Exception as e:
+                    if "already exists" in str(e).lower():
+                        logger.info(f"테스트 토픽 '{topic}'이 이미 존재함")
+                    else:
+                        raise e
+            
+            # 토픽 삭제 (정리)
+            delete_futures = admin_client.delete_topics(['connection-test-topic'])
+            for topic, future in delete_futures.items():
+                try:
+                    future.result()
+                    logger.info(f"테스트 토픽 '{topic}' 삭제 완료")
+                except Exception as e:
+                    logger.warning(f"토픽 삭제 중 오류 (무시): {str(e)}")
+            
+            return {
+                "status": "success",
+                "message": "토픽 생성/삭제 테스트 성공"
+            }
+            
+        except Exception as e:
+            logger.error(f"토픽 생성 테스트 오류: {str(e)}")
+            return {
+                "status": "error",
+                "message": f"토픽 생성 테스트 오류: {str(e)}"
+            }
+            
+    except Exception as e:
+        logger.error(f"토픽 생성 테스트 오류: {str(e)}")
+        return {
+            "status": "error",
+            "message": f"토픽 생성 테스트 오류: {str(e)}"
+        }
+
+def _test_kafka_message_flow():
+    """Kafka 메시지 전송/수신 테스트"""
+    try:
+        test_topic = 'message-flow-test'
+        test_message = {
+            'test_id': 'connection_test',
+            'timestamp': datetime.now().isoformat(),
+            'message': 'Kafka 연결 테스트 메시지'
+        }
+        
+        # Producer로 메시지 전송
+        producer = kafka_manager.get_producer()
+        producer.produce(
+            topic=test_topic, 
+            value=json.dumps(test_message).encode('utf-8')
+        )
+        producer.flush()
+        logger.info("테스트 메시지 전송 완료")
+        
+        # Consumer로 메시지 수신
+        consumer = kafka_manager.get_consumer(test_topic, 'test-message-flow')
+        consumer.subscribe([test_topic])  # 토픽 구독
+        
+        received_message = None
+        timeout_count = 0
+        max_timeout = 10  # 10초 타임아웃
+        
+        try:
+            while timeout_count < max_timeout:
+                msg = consumer.poll(timeout=1.0)  # 1초씩 폴링
+                if msg is None:
+                    timeout_count += 1
+                    continue
+                if msg.error():
+                    if msg.error().code() == KafkaError._PARTITION_EOF:
+                        continue
+                    else:
+                        logger.error(f"Consumer error: {msg.error()}")
+                        break
+                else:
+                    received_message = json.loads(msg.value().decode('utf-8'))
+                    break
+        finally:
+            consumer.close()
+        
+        if received_message and received_message.get('test_id') == 'connection_test':
+            logger.info("테스트 메시지 수신 성공")
+            return {
+                "status": "success",
+                "message": "메시지 전송/수신 테스트 성공",
+                "sent_message": test_message,
+                "received_message": received_message
+            }
+        else:
+            logger.error("테스트 메시지 수신 실패")
+            return {
+                "status": "error",
+                "message": "메시지 수신 실패 (타임아웃 또는 메시지 불일치)"
+            }
+            
+    except Exception as e:
+        logger.error(f"메시지 흐름 테스트 오류: {str(e)}")
+        return {
+            "status": "error",
+            "message": f"메시지 흐름 테스트 오류: {str(e)}"
+        }
+
+
+@app.route('/kafka/status', methods=['GET'])
+def get_kafka_status():
+    """Kafka 상태 정보 조회"""
+    try:
+        admin_client = AdminClient({
+            'bootstrap.servers': kafka_config.bootstrap_servers,
+            'sasl.mechanism': kafka_config.sasl_mechanism,
+            'security.protocol': kafka_config.security_protocol,
+            'sasl.username': kafka_config.username,
+            'sasl.password': kafka_config.password,
+            'api.version.request': True,
+            'api.version': '0.12.0'
+        })
+        
+        # 브로커 정보 조회 (Future 객체 처리)
+        cluster_metadata = admin_client.describe_cluster()
+        cluster_metadata = cluster_metadata.result()  # Future 완료 대기
+        broker_info = []
+        
+        for node in cluster_metadata.brokers:
+            broker_info.append({
+                'node_id': node.nodeId,
+                'host': node.host,
+                'port': node.port,
+                'rack': node.rack
+            })
+        
+        # 토픽 목록 조회 (Future 객체 처리)
+        topics = admin_client.list_topics()
+        topics = topics.result()  # Future 완료 대기
+        
+        admin_client.close()
+        
+        return jsonify({
+            "status": "success",
+            "kafka_config": {
+                "bootstrap_servers": kafka_config.bootstrap_servers,
+                "security_protocol": kafka_config.security_protocol,
+                "sasl_mechanism": kafka_config.sasl_mechanism,
+                "username": kafka_config.username
+            },
+            "cluster_info": {
+                "brokers": broker_info,
+                "broker_count": len(broker_info)
+            },
+            "topics": list(topics),
+            "timestamp": datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error(f"Kafka 상태 조회 오류: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": f"Kafka 상태 조회 실패: {str(e)}",
+            "timestamp": datetime.now().isoformat()
+        }), 500
 
 
 if __name__ == '__main__':

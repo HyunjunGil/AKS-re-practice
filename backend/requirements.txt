@@ -1,6 +1,6 @@
 flask
 flask-cors
 redis
-kafka-python
+confluent-kafka
 mysql-connector-python
 werkzeug 
