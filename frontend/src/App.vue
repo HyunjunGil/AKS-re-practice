@@ -23,7 +23,7 @@
 
     <div v-else>
       <div class="user-info">
-        <span>안녕하세요, {{ username }}님</span>
+        <span>안녕하세요, {{ currentUser }}님</span>
         <button @click="logout">로그아웃</button>
       </div>
 
@@ -131,7 +131,16 @@ export default {
     // 날짜를 사용자 친화적인 형식으로 변환
     formatDate(dateString) {
       const date = new Date(dateString);
-      return date.toLocaleString();
+      const baseTime = date.toLocaleString();
+      
+      // 마이크로초 부분 추출 (예: "2025-08-30T13:22:51.913501" -> "913")
+      const microsecondMatch = dateString.match(/\.(\d{6})/);
+      if (microsecondMatch) {
+        const milliseconds = microsecondMatch[1].substring(0, 3);
+        return `${baseTime}.${milliseconds}`;
+      }
+      
+      return baseTime;
     },
     
     // MariaDB에 메시지 저장

@@ -62,10 +62,13 @@ def get_redis_connection():
     try:
         return redis.Redis(
             host=os.getenv('REDIS_HOST', 'my-redis-master'),
+            # port=6380,
             port=6379,
             password=os.getenv('REDIS_PASSWORD'),
             decode_responses=True,
             ssl=True,
+            ssl_cert_reqs=None,
+            ssl_ca_certs=None
         )
 
     except Exception as e:
@@ -140,8 +143,8 @@ def save_to_db():
         db = get_db_connection()
         data = request.json
         cursor = db.cursor()
-        sql = "INSERT INTO messages (message, created_at) VALUES (%s, %s)"
-        cursor.execute(sql, (data['message'], datetime.now()))
+        sql = "INSERT INTO messages (message, created_at, user_id) VALUES (%s, %s, %s)"
+        cursor.execute(sql, (data['message'], datetime.utcnow(), user_id))
         db.commit()
         cursor.close()
         db.close()
@@ -163,10 +166,18 @@ def get_from_db():
         user_id = session['user_id']
         db = get_db_connection()
         cursor = db.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM messages ORDER BY created_at DESC")
+        cursor.execute("SELECT * FROM messages WHERE user_id = %s ORDER BY created_at DESC", (user_id,))
         messages = cursor.fetchall()
         cursor.close()
         db.close()
+        
+        # 날짜를 ISO 형식 문자열로 변환
+        for message in messages:
+            if message['created_at']:
+                if hasattr(message['created_at'], 'isoformat'):
+                    message['created_at'] = message['created_at'].isoformat()
+                else:
+                    message['created_at'] = str(message['created_at'])
         
         # 비동기 로깅으로 변경
         async_log_api_stats('/db/messages', 'GET', 'success', user_id)
@@ -288,14 +299,22 @@ def search_messages():
         query = request.args.get('q', '')
         user_id = session['user_id']
         
-        # DB에서 검색
+        # DB에서 검색 (사용자별 필터링 추가)
         db = get_db_connection()
         cursor = db.cursor(dictionary=True)
-        sql = "SELECT * FROM messages WHERE message LIKE %s ORDER BY created_at DESC"
-        cursor.execute(sql, (f"%{query}%",))
+        sql = "SELECT * FROM messages WHERE user_id = %s AND message LIKE %s ORDER BY created_at DESC"
+        cursor.execute(sql, (user_id, f"%{query}%"))
         results = cursor.fetchall()
         cursor.close()
         db.close()
+        
+        # 날짜를 ISO 형식 문자열로 변환
+        for message in results:
+            if message['created_at']:
+                if hasattr(message['created_at'], 'isoformat'):
+                    message['created_at'] = message['created_at'].isoformat()
+                else:
+                    message['created_at'] = str(message['created_at'])
         
         # 검색 이력을 Kafka에 저장
         async_log_api_stats('/db/messages/search', 'GET', 'success', user_id)
