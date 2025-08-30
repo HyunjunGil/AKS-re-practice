@@ -20,11 +20,13 @@ app.secret_key = os.getenv('FLASK_SECRET_KEY', 'your-secret-key-here')  # 세션
 # MariaDB 연결 함수
 def get_db_connection():
     return mysql.connector.connect(
-        host=os.getenv('MYSQL_HOST', 'my-mariadb'),
-        user=os.getenv('MYSQL_USER', 'testuser'),
+        host=os.getenv('MYSQL_HOST'),
+        user=os.getenv('MYSQL_USER'),
         password=os.getenv('MYSQL_PASSWORD'),
-        database="testdb",
-        connect_timeout=30
+        database=os.getenv('MYSQL_DATABASE'),
+        connect_timeout=30,
+        ssl_mode="REQUIRED",      # TLS 사용
+        ssl_verify_cert=False     # 자체 서명 인증서 검증 비활성화
     )
 
 # Redis 연결 함수
