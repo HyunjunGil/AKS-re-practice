@@ -10,10 +10,10 @@ image:
 
 architecture: standalone
 auth:
-  rootPassword: "1234"
+  rootPassword: "root-mariadb"
   database: testdb
   username: "testuser"
-  password: "hyunjun"
+  password: "hyunjun-mariadb"
   replicationUser: replicator
   replicationPassword: ""
   existingSecret: ""
@@ -70,4 +70,4 @@ primary:
       mysql: 3306
       metrics: 9104
     nodePorts:
-      mysql: 30306
+      mysql: "30306"

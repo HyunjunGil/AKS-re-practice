@@ -2,7 +2,7 @@
 global:
   storageClass: ""
 
-fullnameOverride: "kafka"
+fullnameOverride: "local-kafka"
 
 image:
   registry: docker.io
