@@ -41,10 +41,8 @@ app.secret_key = os.getenv('FLASK_SECRET_KEY', 'your-secret-key-here')  # 세션
 # MariaDB 연결 함수
 def get_db_connection():
 
-    app.logger.info("=== DB 연결 함수 호출됨 ===")
-
     try:
-        connection = mysql.connector.connect(
+        return mysql.connector.connect(
             host=os.getenv('MYSQL_HOST'),
             user=os.getenv('MYSQL_USER'),
             password=os.getenv('MYSQL_PASSWORD'),
@@ -54,7 +52,6 @@ def get_db_connection():
             ssl_verify_cert=False,   # ssl_ca=None
         )
 
-        return connection
     except Exception as e:
         app.logger.error(f"MariaDB 연결 오류: {str(e)}")
         raise
