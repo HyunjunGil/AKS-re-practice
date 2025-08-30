@@ -53,7 +53,7 @@
                 {{ loading ? '로딩 중...' : '더 보기' }}
               </button>
               
-              <div class="pagination-info">
+              <div class="pagination-info">ㅓ
                 <span>현재 {{ dbData.length }}개 표시</span>
                 <span v-if="debugInfo && debugInfo.total_count" class="total-count">
                   (전체 {{ debugInfo.total_count }}개)
@@ -73,6 +73,24 @@
                 [{{ formatDate(log.timestamp) }}] {{ log.action }}: {{ log.details }}
               </li>
             </ul>
+            
+            <!-- Redis 로그 페이지네이션 UI -->
+            <div class="pagination" v-if="redisLogs.length > 0">
+              <button 
+                @click="loadMoreRedisLogs" 
+                :disabled="!hasMoreRedisLogs || redisLogsLoading"
+                class="load-more-btn"
+              >
+                {{ redisLogsLoading ? '로딩 중...' : '더 보기' }}
+              </button>
+              
+              <div class="pagination-info">
+                <span>현재 {{ redisLogs.length }}개 표시</span>
+                <span v-if="redisLogsDebugInfo && redisLogsDebugInfo.total_count" class="total-count">
+                  (전체 {{ redisLogsDebugInfo.total_count }}개)
+                </span>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -305,6 +323,12 @@ export default {
       limit: 20,
       loading: false,
       hasMore: true,
+      // Redis 로그 페이지네이션 관련 변수들
+      redisLogsOffset: 0,
+      redisLogsLimit: 20,
+      hasMoreRedisLogs: true,
+      redisLogsLoading: false,
+      redisLogsDebugInfo: null,
       showRegister: false,
       registerUsername: '',
       registerPassword: '',
@@ -359,7 +383,7 @@ export default {
         });
         this.dbMessage = '';
         this.getFromDb(true); // 페이지네이션 초기화
-        this.getRedisLogs();
+        this.getRedisLogs(true); // Redis 로그 페이지네이션 초기화
       } catch (error) {
         console.error('DB 저장 실패:', error);
       }
@@ -407,19 +431,68 @@ export default {
           message: randomMessage
         });
         this.getFromDb(true); // 페이지네이션 초기화
-        this.getRedisLogs();
+        this.getRedisLogs(true); // Redis 로그 페이지네이션 초기화
       } catch (error) {
         console.error('샘플 데이터 저장 실패:', error);
       }
     },
 
-    // Redis에 저장된 API 호출 로그 조회
-    async getRedisLogs() {
+    // Redis에 저장된 API 호출 로그 조회 (페이지네이션 적용)
+    async getRedisLogs(resetPagination = false) {
+      if (resetPagination) {
+        this.redisLogsOffset = 0;
+        this.hasMoreRedisLogs = true;
+      }
+      
       try {
-        const response = await axios.get(`${API_BASE_URL}/logs/redis`);
-        this.redisLogs = response.data;
+        this.redisLogsLoading = true;
+        const response = await axios.get(`${API_BASE_URL}/logs/redis?offset=${this.redisLogsOffset}&limit=${this.redisLogsLimit}`);
+        
+        // 새로운 응답 형식 처리
+        if (response.data.status === 'success' && response.data.results) {
+          if (resetPagination) {
+            this.redisLogs = response.data.results;
+          } else {
+            this.redisLogs = [...this.redisLogs, ...response.data.results];
+          }
+          this.hasMoreRedisLogs = response.data.has_more;
+          console.log(`Redis 로그 조회 성공: ${response.data.count}개 로드, hasMore: ${this.hasMoreRedisLogs}`);
+        } else {
+          // 기존 형식 호환성 유지
+          this.redisLogs = response.data;
+          this.hasMoreRedisLogs = response.data.length === this.redisLogsLimit;
+        }
+        
+        // 디버깅 정보 저장
+        this.redisLogsDebugInfo = {
+          count: response.data.count || response.data.length || 0,
+          total_count: response.data.total_count || response.data.length || 0,
+          status: response.data.status || 'success'
+        };
       } catch (error) {
         console.error('Redis 로그 조회 실패:', error);
+      } finally {
+        this.redisLogsLoading = false;
+      }
+    },
+
+    // Redis 로그 페이지네이션을 위한 추가 데이터 로드
+    async loadMoreRedisLogs() {
+      try {
+        this.redisLogsLoading = true;
+        const response = await axios.get(`${API_BASE_URL}/logs/redis?offset=${this.redisLogsOffset + this.redisLogsLimit}&limit=${this.redisLogsLimit}`);
+        
+        if (response.data.status === 'success' && response.data.results) {
+          // 기존 데이터에 새 데이터 추가
+          this.redisLogs = [...this.redisLogs, ...response.data.results];
+          this.redisLogsOffset += this.redisLogsLimit;
+          this.hasMoreRedisLogs = response.data.has_more;
+          console.log(`Redis 로그 추가 로드: ${response.data.results.length}개, 전체 ${this.redisLogs.length}개`);
+        }
+      } catch (error) {
+        console.error('Redis 로그 추가 데이터 로드 실패:', error);
+      } finally {
+        this.redisLogsLoading = false;
       }
     },
 

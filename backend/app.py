@@ -800,11 +800,33 @@ def logout():
 
 @app.route('/logs/redis', methods=['GET'])
 def get_redis_logs():
-    """Redis 로그 조회"""
+    """Redis 로그 조회 (페이지네이션 적용)"""
     try:
+        # 페이지네이션 파라미터 받기
+        offset = request.args.get('offset', 0, type=int)
+        limit = request.args.get('limit', 20, type=int)
+        
+        # limit 최대값 제한 (성능 보호)
+        if limit > 100:
+            limit = 100
+        
         with redis_manager.get_client() as client:
-            logs = client.lrange('api_logs', 0, -1)
-            return jsonify([json.loads(log) for log in logs])
+            # 전체 로그 개수 조회
+            total_count = client.llen('api_logs')
+            
+            # 페이지네이션 적용하여 로그 조회
+            logs = client.lrange('api_logs', offset, offset + limit - 1)
+            parsed_logs = [json.loads(log) for log in logs]
+            
+            return jsonify({
+                "status": "success",
+                "results": parsed_logs,
+                "count": len(parsed_logs),
+                "total_count": total_count,
+                "offset": offset,
+                "limit": limit,
+                "has_more": offset + limit < total_count
+            })
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
