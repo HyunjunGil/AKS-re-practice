@@ -370,6 +370,22 @@ export default {
       kafkaLogsDebugInfo: null
     }
   },
+  async mounted() {
+    // 페이지 로드 시 로그인 상태 확인 및 데이터 로드
+    try {
+      // 세션 상태 확인
+      const response = await axios.get(`${API_BASE_URL}/session/status`);
+      if (response.data.status === 'success' && response.data.is_logged_in) {
+        // 로그인된 상태라면 데이터 로드
+        this.isLoggedIn = true;
+        this.currentUser = response.data.user_id;
+        await this.loadUserData();
+      }
+    } catch (error) {
+      // 로그인되지 않은 상태
+      console.log('로그인되지 않은 상태입니다.');
+    }
+  },
   methods: {
     // UTC 시간을 한국시간으로 변환하여 표시
     formatDate(dateString) {
@@ -529,9 +545,13 @@ export default {
         
         if (response.data.status === 'success') {
           this.isLoggedIn = true;
-          this.currentUser = this.username;
+          this.currentUser = response.data.username;
           this.username = '';
           this.password = '';
+          
+          // 로그인 성공 후 데이터 초기화 및 새로 로드
+          this.clearAllData();
+          this.loadUserData();
         } else {
           alert(response.data.message || '로그인에 실패했습니다.');
         }
@@ -548,10 +568,62 @@ export default {
       try {
         await axios.post(`${API_BASE_URL}/logout`);
         this.isLoggedIn = false;
+        this.currentUser = null;
         this.username = '';
         this.password = '';
+        
+        // 로그아웃 후 모든 데이터 초기화
+        this.clearAllData();
       } catch (error) {
         console.error('로그아웃 실패:', error);
+      }
+    },
+
+    // 모든 데이터 초기화
+    clearAllData() {
+      // 메시지 데이터 초기화
+      this.dbData = [];
+      this.offset = 0;
+      this.hasMore = true;
+      this.debugInfo = null;
+      
+      // Redis 로그 데이터 초기화
+      this.redisLogs = [];
+      this.redisLogsOffset = 0;
+      this.hasMoreRedisLogs = true;
+      this.redisLogsDebugInfo = null;
+      
+      // Kafka 로그 데이터 초기화
+      this.kafkaLogs = [];
+      this.kafkaLogsOffset = 0;
+      this.hasMoreKafkaLogs = true;
+      this.kafkaLogsDebugInfo = null;
+      
+      // 검색 결과 초기화
+      this.searchResults = [];
+      this.searchQuery = '';
+      
+      // Kafka 테스트 결과 초기화
+      this.kafkaSimpleTestResult = null;
+      this.kafkaTestResult = null;
+      this.kafkaStatus = null;
+      
+      console.log('모든 데이터가 초기화되었습니다.');
+    },
+
+    // 사용자 데이터 로드
+    async loadUserData() {
+      try {
+        // 메시지 데이터 로드
+        await this.getFromDb(true);
+        // Redis 로그 로드
+        await this.getRedisLogs(true);
+        // Kafka 로그 로드 (선택적)
+        await this.getKafkaLogs(true);
+        
+        console.log('사용자 데이터 로드가 완료되었습니다.');
+      } catch (error) {
+        console.error('사용자 데이터 로드 실패:', error);
       }
     },
 

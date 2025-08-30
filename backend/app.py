@@ -800,6 +800,22 @@ def logout():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+@app.route('/session/status', methods=['GET'])
+def get_session_status():
+    """세션 상태 확인"""
+    try:
+        if 'user_id' in session:
+            return jsonify({
+                "status": "success",
+                "is_logged_in": True,
+                "user_id": session['user_id']
+            })
+        else:
+            return jsonify({"status": "error", "message": "로그인이 필요합니다"}), 401
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 @app.route('/logs/redis', methods=['GET'])
 @login_required
 def get_redis_logs():
@@ -880,8 +896,10 @@ def clear_cache():
 @app.route('/logs/kafka', methods=['GET'])
 @login_required
 def get_kafka_logs():
-    """Kafka 로그 조회 (페이지네이션 적용)"""
+    """Kafka 로그 조회 (페이지네이션 적용, 현재 유저만)"""
     try:
+        user_id = session['user_id']
+        
         # 페이지네이션 파라미터 받기
         offset = request.args.get('offset', 0, type=int)
         limit = request.args.get('limit', 20, type=int)
@@ -929,14 +947,17 @@ def get_kafka_logs():
         finally:
             consumer.close()
         
+        # 현재 유저의 로그만 필터링
+        user_logs = [log for log in all_logs if log.get('user_id') == user_id]
+        
         # 시간 역순으로 정렬
-        all_logs.sort(key=lambda x: x['timestamp'], reverse=True)
+        user_logs.sort(key=lambda x: x['timestamp'], reverse=True)
         
         # 페이지네이션 적용
-        total_count = len(all_logs)
+        total_count = len(user_logs)
         start_idx = offset
         end_idx = offset + limit
-        logs = all_logs[start_idx:end_idx]
+        logs = user_logs[start_idx:end_idx]
         
         return jsonify({
             "status": "success",
