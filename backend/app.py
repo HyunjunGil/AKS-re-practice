@@ -486,14 +486,15 @@ class LoggingService:
         self.redis_manager = redis_manager
         self.kafka_manager = kafka_manager
     
-    def log_to_redis(self, action: str, details: str):
+    def log_to_redis(self, action: str, details: str, user_id: str = None):
         """Redis에 로그 저장"""
         try:
             with self.redis_manager.get_client() as client:
                 log_entry = {
                     'timestamp': datetime.now().isoformat(),
                     'action': action,
-                    'details': details
+                    'details': details,
+                    'user_id': user_id or 'anonymous'
                 }
                 client.lpush('api_logs', json.dumps(log_entry))
                 client.ltrim('api_logs', 0, 99)  # 최근 100개 로그만 유지
@@ -638,7 +639,8 @@ def save_message():
         result = message_service.save_message(user_id, message_text)
         
         # 로깅
-        logging_service.log_to_redis('db_insert', f"Message saved: {message_text[:30]}...")
+        message_text = message_text[:30] + '...' if len(message_text) > 30 else message_text
+        logging_service.log_to_redis('db_insert', f"Message saved: {message_text}", user_id)
         logging_service.log_api_stats_async('/db/message', 'POST', 'success', user_id)
         
         return jsonify(result)
@@ -799,9 +801,12 @@ def logout():
 
 
 @app.route('/logs/redis', methods=['GET'])
+@login_required
 def get_redis_logs():
-    """Redis 로그 조회 (페이지네이션 적용)"""
+    """Redis 로그 조회 (페이지네이션 적용, 현재 유저만)"""
     try:
+        user_id = session['user_id']
+        
         # 페이지네이션 파라미터 받기
         offset = request.args.get('offset', 0, type=int)
         limit = request.args.get('limit', 20, type=int)
@@ -811,17 +816,34 @@ def get_redis_logs():
             limit = 100
         
         with redis_manager.get_client() as client:
-            # 전체 로그 개수 조회
-            total_count = client.llen('api_logs')
+            # 전체 로그를 가져와서 현재 유저의 로그만 필터링
+            all_logs = client.lrange('api_logs', 0, -1)
+            user_logs = []
             
-            # 페이지네이션 적용하여 로그 조회
-            logs = client.lrange('api_logs', offset, offset + limit - 1)
-            parsed_logs = [json.loads(log) for log in logs]
+            for log in all_logs:
+                try:
+                    log_data = json.loads(log)
+                    # 현재 유저의 로그만 필터링
+                    if log_data.get('user_id') == user_id:
+                        user_logs.append(log_data)
+                except (json.JSONDecodeError, KeyError):
+                    continue
+            
+            # 시간 역순으로 정렬 (최신순)
+            user_logs.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+            
+            # 전체 개수
+            total_count = len(user_logs)
+            
+            # 페이지네이션 적용
+            start_idx = offset
+            end_idx = offset + limit
+            paginated_logs = user_logs[start_idx:end_idx]
             
             return jsonify({
                 "status": "success",
-                "results": parsed_logs,
-                "count": len(parsed_logs),
+                "results": paginated_logs,
+                "count": len(paginated_logs),
                 "total_count": total_count,
                 "offset": offset,
                 "limit": limit,
