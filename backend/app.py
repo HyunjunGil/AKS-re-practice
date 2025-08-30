@@ -10,6 +10,27 @@ from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
 from threading import Thread
 
+
+from logging.config import dictConfig
+
+# 앱 생성 전에 로깅 설정
+dictConfig({
+    'version': 1,
+    'formatters': {'default': {
+        'format': '[%(asctime)s] %(levelname)s in %(module)s: %(message)s',
+    }},
+    'handlers': {'wsgi': {
+        'class': 'logging.StreamHandler',
+        'stream': 'ext://sys.stdout',
+        'formatter': 'default'
+    }},
+    'root': {
+        'level': 'INFO',
+        'handlers': ['wsgi']
+    }
+})
+
+
 app = Flask(__name__)
 CORS(app, supports_credentials=True)  # 세션을 위한 credentials 지원
 app.secret_key = os.getenv('FLASK_SECRET_KEY', 'your-secret-key-here')  # 세션을 위한 시크릿 키
@@ -19,22 +40,37 @@ app.secret_key = os.getenv('FLASK_SECRET_KEY', 'your-secret-key-here')  # 세션
 
 # MariaDB 연결 함수
 def get_db_connection():
-    return mysql.connector.connect(
-        host=os.getenv('MYSQL_HOST'),
-        user=os.getenv('MYSQL_USER'),
-        password=os.getenv('MYSQL_PASSWORD'),
-        database=os.getenv('MYSQL_DATABASE'),
-        connect_timeout=30,
-    )
+
+    app.logger.info("=== DB 연결 함수 호출됨 ===")
+
+    try:
+        connection = mysql.connector.connect(
+            host=os.getenv('MYSQL_HOST'),
+            user=os.getenv('MYSQL_USER'),
+            password=os.getenv('MYSQL_PASSWORD'),
+            database=os.getenv('MYSQL_DATABASE'),
+            connect_timeout=10,
+            ssl_disabled=False,
+            ssl_verify_cert=False,   # ssl_ca=None
+        )
+
+        return connection
+    except Exception as e:
+        app.logger.error(f"MariaDB 연결 오류: {str(e)}")
+        raise
 
 # Redis 연결 함수
 def get_redis_connection():
     return redis.Redis(
         host=os.getenv('REDIS_HOST', 'my-redis-master'),
+        # port=6380,
         port=6379,
         password=os.getenv('REDIS_PASSWORD'),
         decode_responses=True,
-        db=0
+        # db=0,
+        # ssl=True,
+        # ssl_cert_reqs=None,
+        # ssl_ca_certs=None
     )
 
 # Kafka Producer 설정
@@ -61,7 +97,7 @@ def log_to_redis(action, details):
         redis_client.ltrim('api_logs', 0, 99)  # 최근 100개 로그만 유지
         redis_client.close()
     except Exception as e:
-        print(f"Redis logging error: {str(e)}")
+        app.logger.error(f"Redis logging error: {str(e)}")
 
 # API 통계 로깅을 비동기로 처리하는 함수
 def async_log_api_stats(endpoint, method, status, user_id):
@@ -79,7 +115,7 @@ def async_log_api_stats(endpoint, method, status, user_id):
             producer.send('api-logs', log_data)
             producer.flush()
         except Exception as e:
-            print(f"Kafka logging error: {str(e)}")
+            app.logger.error(f"Kafka logging error: {str(e)}")
     
     # 새로운 스레드에서 로깅 실행
     Thread(target=_log).start()
@@ -217,7 +253,7 @@ def login():
                 redis_client.set(f"session:{username}", json.dumps(session_data))
                 redis_client.expire(f"session:{username}", 3600)
             except Exception as redis_error:
-                print(f"Redis session error: {str(redis_error)}")
+                app.logger.warning(f"Redis session error: {str(redis_error)}")
                 # Redis 오류는 무시하고 계속 진행
             
             return jsonify({
@@ -229,7 +265,7 @@ def login():
         return jsonify({"status": "error", "message": "잘못된 인증 정보"}), 401
         
     except Exception as e:
-        print(f"Login error: {str(e)}")  # 서버 로그에 에러 출력
+        app.logger.error(f"Login error: {str(e)}")  # 서버 로그에 에러 출력
         return jsonify({"status": "error", "message": "로그인 처리 중 오류가 발생했습니다"}), 500
 
 # 로그아웃 엔드포인트
@@ -309,8 +345,9 @@ def get_kafka_logs():
         logs.sort(key=lambda x: x['timestamp'], reverse=True)
         return jsonify(logs)
     except Exception as e:
-        print(f"Kafka log retrieval error: {str(e)}")
+        app.logger.error(f"Kafka log retrieval error: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 if __name__ == '__main__':
+    app.logger.info("=== Flask 앱 시작 ===")
     app.run(host='0.0.0.0', port=5000, debug=True) 
