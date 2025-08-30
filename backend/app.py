@@ -766,7 +766,7 @@ def get_kafka_logs():
             # 최대 100개 메시지 수집
             message_count = 0
             while message_count < 100:
-                msg = consumer.poll(timeout=1.0)
+                msg = consumer.poll(timeout=5.0)
                 if msg is None:
                     break
                 if msg.error():
