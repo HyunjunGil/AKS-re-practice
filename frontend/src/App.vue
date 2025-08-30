@@ -306,10 +306,22 @@ export default {
     }
   },
   methods: {
-    // 날짜를 사용자 친화적인 형식으로 변환
+    // UTC 시간을 한국시간으로 변환하여 표시
     formatDate(dateString) {
       const date = new Date(dateString);
-      const baseTime = date.toLocaleString();
+      
+      // UTC 시간을 한국시간으로 변환 (UTC+9)
+      const koreaTime = new Date(date.getTime() + (9 * 60 * 60 * 1000));
+      
+      // 한국시간 기준으로 포맷팅
+      const year = koreaTime.getFullYear();
+      const month = String(koreaTime.getMonth() + 1).padStart(2, '0');
+      const day = String(koreaTime.getDate()).padStart(2, '0');
+      const hours = String(koreaTime.getHours()).padStart(2, '0');
+      const minutes = String(koreaTime.getMinutes()).padStart(2, '0');
+      const seconds = String(koreaTime.getSeconds()).padStart(2, '0');
+      
+      const baseTime = `${year}. ${month}. ${day}. ${hours}:${minutes}:${seconds}`;
       
       // 마이크로초 부분 추출 (예: "2025-08-30T13:22:51.913501" -> "913")
       const microsecondMatch = dateString.match(/\.(\d{6})/);
