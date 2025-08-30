@@ -1127,7 +1127,7 @@ def _test_kafka_message_flow():
         
         try:
             while timeout_count < max_timeout:
-                msg = consumer.poll(timeout=1.0)  # 1초씩 폴링
+                msg = consumer.poll(timeout=5.0)  # 1초씩 폴링
                 if msg is None:
                     timeout_count += 1
                     continue
