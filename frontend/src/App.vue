@@ -141,7 +141,7 @@
                 <strong>브로커 수:</strong> {{ kafkaStatus.cluster_info.broker_count }}
               </div>
               <div class="status-item">
-                <strong>토픽 수:</strong> {{ kafkaStatus.topics.length }}
+                <strong>토픽 수:</strong> {{ kafkaStatus.topics.count }}
               </div>
               <div class="status-item">
                 <strong>보안 프로토콜:</strong> {{ kafkaStatus.kafka_config.security_protocol }}
@@ -173,11 +173,11 @@
               </table>
             </div>
             
-            <div v-if="kafkaStatus.topics.length" class="topic-list">
+            <div v-if="kafkaStatus.topics.details && kafkaStatus.topics.details.length" class="topic-list">
               <h4>토픽 목록:</h4>
               <div class="topic-tags">
-                <span v-for="topic in kafkaStatus.topics" :key="topic" class="topic-tag">
-                  {{ topic }}
+                <span v-for="topic in kafkaStatus.topics.details" :key="topic.name" class="topic-tag">
+                  {{ topic.name }} ({{ topic.partitions }} 파티션)
                 </span>
               </div>
             </div>
