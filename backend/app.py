@@ -3,7 +3,7 @@ from flask_cors import CORS
 import redis
 import mysql.connector
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 import os
 from confluent_kafka import Producer, Consumer, KafkaError, KafkaException
 from confluent_kafka.admin import AdminClient, NewTopic, ConfigResource
@@ -185,7 +185,7 @@ class MessageService:
         try:
             with self.db_manager.get_cursor() as (cursor, conn):
                 sql = "INSERT INTO messages (message, created_at, user_id) VALUES (%s, %s, %s)"
-                cursor.execute(sql, (message_text, datetime.utcnow(), user_id))
+                cursor.execute(sql, (message_text, datetime.now(), user_id))
                 conn.commit()
                 message_id = cursor.lastrowid
             
@@ -198,41 +198,70 @@ class MessageService:
             logger.error(f"메시지 저장 오류: {str(e)}")
             raise
     
-    def get_messages(self, user_id: str) -> List[Dict[str, Any]]:
-        """사용자별 메시지 조회"""
+    def get_messages(self, user_id: str, offset: int = 0, limit: int = 20) -> List[Dict[str, Any]]:
+        """사용자별 메시지 조회 (페이지네이션 적용)"""
         # Redis에서 먼저 조회 시도
         redis_messages = self._get_messages_from_cache(user_id)
         if redis_messages:
-            return redis_messages
+            # Redis 결과에 페이지네이션 적용
+            start_idx = offset
+            end_idx = offset + limit
+            return redis_messages[start_idx:end_idx]
         
-        # DB에서 조회
-        db_messages = self._get_messages_from_db(user_id)
+        # DB에서 조회 (페이지네이션 적용)
+        db_messages = self._get_messages_from_db(user_id, offset=offset, limit=limit)
         
-        # Redis에 캐시로 저장
-        self._cache_messages(user_id, db_messages)
+        # Redis에 캐시로 저장 (전체 데이터)
+        self._cache_messages(user_id, self._get_messages_from_db_all(user_id))
         
         return db_messages
     
-    def search_messages(self, user_id: str, query: str) -> List[Dict[str, Any]]:
-        """메시지 검색"""
-        logger.info(f"메시지 검색 시작: user_id={user_id}, query={query}")
+    def get_total_message_count(self, user_id: str) -> int:
+        """사용자별 전체 메시지 개수 조회"""
+        try:
+            with self.db_manager.get_cursor() as (cursor, conn):
+                cursor.execute("SELECT COUNT(*) FROM messages WHERE user_id = %s", (user_id,))
+                result = cursor.fetchone()
+                return result[0] if result else 0
+        except Exception as e:
+            logger.error(f"메시지 개수 조회 오류: {str(e)}")
+            return 0
+    
+    def search_messages(self, user_id: str, query: str, offset: int = 0, limit: int = 20) -> List[Dict[str, Any]]:
+        """메시지 검색 (페이지네이션 적용)"""
+        logger.info(f"메시지 검색 시작: user_id={user_id}, query={query}, offset={offset}, limit={limit}")
         
         # Redis에서 먼저 검색
         redis_results = self._search_messages_from_cache(user_id, query)
         if redis_results:
             logger.info(f"Redis에서 검색 결과 {len(redis_results)}개 반환")
-            return redis_results
+            # Redis 결과에 페이지네이션 적용
+            start_idx = offset
+            end_idx = offset + limit
+            return redis_results[start_idx:end_idx]
         
         logger.info("Redis에서 검색 결과 없음, DB에서 검색 진행")
         
-        # DB에서 검색
-        db_results = self._search_messages_from_db(user_id, query)
+        # DB에서 검색 (페이지네이션 적용)
+        db_results = self._search_messages_from_db(user_id, query, offset=offset, limit=limit)
         logger.info(f"DB에서 검색 결과 {len(db_results)}개 발견")
         
-        # Redis에 캐시로 저장
-        self._cache_messages(user_id, db_results)
+        # Redis에 캐시로 저장 (전체 검색 결과)
+        self._cache_messages(user_id, self._search_messages_from_db_all(user_id, query))
         
         return db_results
+    
+    def get_search_result_count(self, user_id: str, query: str) -> int:
+        """검색 결과 개수 조회"""
+        try:
+            with self.db_manager.get_cursor() as (cursor, conn):
+                sql = "SELECT COUNT(*) FROM messages WHERE user_id = %s AND message LIKE %s"
+                cursor.execute(sql, (user_id, f"%{query}%"))
+                result = cursor.fetchone()
+                return result[0] if result else 0
+        except Exception as e:
+            logger.error(f"검색 결과 개수 조회 오류: {str(e)}")
+            return 0
     
     def _cache_message(self, user_id: str, message_id: int, message_text: str):
         """단일 메시지를 Redis에 캐시"""
@@ -241,7 +270,7 @@ class MessageService:
                 message_data = {
                     'id': message_id,
                     'message': message_text,
-                    'created_at': datetime.utcnow().isoformat(),
+                    'created_at': datetime.now().isoformat(),
                     'user_id': user_id,
                     'source': 'redis'  # source 정보 추가
                 }
@@ -295,10 +324,23 @@ class MessageService:
         
         return None
     
-    def _get_messages_from_db(self, user_id: str) -> List[Dict[str, Any]]:
-        """DB에서 메시지 조회"""
+    def _get_messages_from_db_all(self, user_id: str) -> List[Dict[str, Any]]:
+        """DB에서 메시지 조회 (전체 결과, 페이지네이션 없음)"""
         with self.db_manager.get_cursor(dictionary=True) as (cursor, conn):
             cursor.execute("SELECT * FROM messages WHERE user_id = %s ORDER BY created_at DESC", (user_id,))
+            messages = cursor.fetchall()
+        
+        self._format_dates(messages)
+        # source 정보 추가
+        for message in messages:
+            message['source'] = 'database'
+        return messages
+    
+    def _get_messages_from_db(self, user_id: str, offset: int = 0, limit: int = 20) -> List[Dict[str, Any]]:
+        """DB에서 메시지 조회 (페이지네이션 적용)"""
+        with self.db_manager.get_cursor(dictionary=True) as (cursor, conn):
+            cursor.execute("SELECT * FROM messages WHERE user_id = %s ORDER BY created_at DESC LIMIT %s OFFSET %s", 
+                         (user_id, limit, offset))
             messages = cursor.fetchall()
         
         self._format_dates(messages)
@@ -333,11 +375,24 @@ class MessageService:
         
         return None
     
-    def _search_messages_from_db(self, user_id: str, query: str) -> List[Dict[str, Any]]:
-        """DB에서 메시지 검색"""
+    def _search_messages_from_db_all(self, user_id: str, query: str) -> List[Dict[str, Any]]:
+        """DB에서 메시지 검색 (전체 결과, 페이지네이션 없음)"""
         with self.db_manager.get_cursor(dictionary=True) as (cursor, conn):
             sql = "SELECT * FROM messages WHERE user_id = %s AND message LIKE %s ORDER BY created_at DESC"
             cursor.execute(sql, (user_id, f"%{query}%"))
+            results = cursor.fetchall()
+        
+        self._format_dates(results)
+        # source 정보 추가
+        for message in results:
+            message['source'] = 'database'
+        return results
+    
+    def _search_messages_from_db(self, user_id: str, query: str, offset: int = 0, limit: int = 20) -> List[Dict[str, Any]]:
+        """DB에서 메시지 검색 (페이지네이션 적용)"""
+        with self.db_manager.get_cursor(dictionary=True) as (cursor, conn):
+            sql = "SELECT * FROM messages WHERE user_id = %s AND message LIKE %s ORDER BY created_at DESC LIMIT %s OFFSET %s"
+            cursor.execute(sql, (user_id, f"%{query}%", limit, offset))
             results = cursor.fetchall()
         
         self._format_dates(results)
@@ -597,10 +652,20 @@ def save_message():
 @app.route('/db/messages', methods=['GET'])
 @login_required
 def get_messages():
-    """메시지 조회"""
+    """메시지 조회 (페이지네이션 적용)"""
     try:
         user_id = session['user_id']
-        messages = message_service.get_messages(user_id)
+        
+        # 페이지네이션 파라미터 받기
+        offset = request.args.get('offset', 0, type=int)
+        limit = request.args.get('limit', 20, type=int)
+        
+        # limit 최대값 제한 (성능 보호)
+        if limit > 100:
+            limit = 100
+        
+        messages = message_service.get_messages(user_id, offset=offset, limit=limit)
+        total_count = message_service.get_total_message_count(user_id)
         
         source = "redis" if len(messages) > 0 and messages[0].get('source') == 'redis' else "database"
         
@@ -610,7 +675,11 @@ def get_messages():
             "status": "success",
             "source": source,
             "results": messages,
-            "count": len(messages)
+            "count": len(messages),
+            "total_count": total_count,
+            "offset": offset,
+            "limit": limit,
+            "has_more": offset + limit < total_count
         })
         
     except Exception as e:
@@ -622,7 +691,7 @@ def get_messages():
 @app.route('/db/messages/search', methods=['GET'])
 @login_required
 def search_messages():
-    """메시지 검색"""
+    """메시지 검색 (페이지네이션 적용)"""
     try:
         user_id = session['user_id']
         query = request.args.get('q', '')
@@ -630,7 +699,16 @@ def search_messages():
         if not query:
             return jsonify({"status": "error", "message": "검색어가 필요합니다"}), 400
         
-        results = message_service.search_messages(user_id, query)
+        # 페이지네이션 파라미터 받기
+        offset = request.args.get('offset', 0, type=int)
+        limit = request.args.get('limit', 20, type=int)
+        
+        # limit 최대값 제한 (성능 보호)
+        if limit > 100:
+            limit = 100
+        
+        results = message_service.search_messages(user_id, query, offset=offset, limit=limit)
+        total_count = message_service.get_search_result_count(user_id, query)
         
         source = "redis" if len(results) > 0 and results[0].get('source') == 'redis' else "database"
         
@@ -640,7 +718,11 @@ def search_messages():
             "status": "success",
             "source": source,
             "results": results,
-            "count": len(results)
+            "count": len(results),
+            "total_count": total_count,
+            "offset": offset,
+            "limit": limit,
+            "has_more": offset + limit < total_count
         })
         
     except Exception as e:

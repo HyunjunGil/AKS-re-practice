@@ -42,6 +42,24 @@
             <ul>
               <li v-for="item in dbData" :key="item.id">{{ item.message }} ({{ formatDate(item.created_at) }})</li>
             </ul>
+            
+            <!-- 페이지네이션 UI -->
+            <div class="pagination" v-if="dbData.length > 0">
+              <button 
+                @click="loadMore" 
+                :disabled="!hasMore || loading"
+                class="load-more-btn"
+              >
+                {{ loading ? '로딩 중...' : '더 보기' }}
+              </button>
+              
+              <div class="pagination-info">
+                <span>현재 {{ dbData.length }}개 표시</span>
+                <span v-if="debugInfo && debugInfo.total_count" class="total-count">
+                  (전체 {{ debugInfo.total_count }}개)
+                </span>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -340,7 +358,7 @@ export default {
           message: this.dbMessage
         });
         this.dbMessage = '';
-        this.getFromDb();
+        this.getFromDb(true); // 페이지네이션 초기화
         this.getRedisLogs();
       } catch (error) {
         console.error('DB 저장 실패:', error);
@@ -348,7 +366,11 @@ export default {
     },
 
     // MariaDB에서 메시지 조회 (페이지네이션 적용)
-    async getFromDb() {
+    async getFromDb(resetPagination = false) {
+      if (resetPagination) {
+        this.offset = 0;
+        this.hasMore = true;
+      }
       try {
         this.loading = true;
         const response = await axios.get(`${API_BASE_URL}/db/messages?offset=${this.offset}&limit=${this.limit}`);
@@ -356,8 +378,8 @@ export default {
         // 새로운 응답 형식 처리
         if (response.data.status === 'success' && response.data.results) {
           this.dbData = response.data.results;
-          this.hasMore = response.data.results.length === this.limit;
-          console.log(`메시지 조회 성공: ${response.data.source}에서 ${response.data.count}개 로드`);
+          this.hasMore = response.data.has_more || response.data.results.length === this.limit;
+          console.log(`메시지 조회 성공: ${response.data.source}에서 ${response.data.count}개 로드, hasMore: ${this.hasMore}`);
         } else {
           // 기존 형식 호환성 유지
           this.dbData = response.data;
@@ -384,7 +406,7 @@ export default {
         await axios.post(`${API_BASE_URL}/db/message`, {
           message: randomMessage
         });
-        this.getFromDb();
+        this.getFromDb(true); // 페이지네이션 초기화
         this.getRedisLogs();
       } catch (error) {
         console.error('샘플 데이터 저장 실패:', error);
@@ -498,8 +520,22 @@ export default {
 
     // 페이지네이션을 위한 추가 데이터 로드
     async loadMore() {
-      this.offset += this.limit;
-      await this.getFromDb();
+      try {
+        this.loading = true;
+        const response = await axios.get(`${API_BASE_URL}/db/messages?offset=${this.offset + this.limit}&limit=${this.limit}`);
+        
+        if (response.data.status === 'success' && response.data.results) {
+          // 기존 데이터에 새 데이터 추가
+          this.dbData = [...this.dbData, ...response.data.results];
+          this.offset += this.limit;
+          this.hasMore = response.data.has_more;
+          console.log(`추가 메시지 로드: ${response.data.results.length}개, 전체 ${this.dbData.length}개`);
+        }
+      } catch (error) {
+        console.error('추가 데이터 로드 실패:', error);
+      } finally {
+        this.loading = false;
+      }
     },
 
     // 회원가입 처리
@@ -717,6 +753,36 @@ li {
 .pagination button:disabled {
   background-color: #ccc;
   cursor: not-allowed;
+}
+
+.load-more-btn {
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 3px;
+  padding: 8px 16px;
+  cursor: pointer;
+  font-size: 14px;
+  margin-bottom: 10px;
+}
+
+.load-more-btn:hover:not(:disabled) {
+  background-color: #0056b3;
+}
+
+.pagination-info {
+  margin-top: 10px;
+  color: #666;
+  font-size: 14px;
+}
+
+.pagination-info span {
+  margin-right: 15px;
+}
+
+.total-count {
+  color: #007bff;
+  font-weight: bold;
 }
 
 .loading-spinner {
