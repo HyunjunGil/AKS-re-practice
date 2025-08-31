@@ -55,10 +55,10 @@ class RedisConfig:
     host: str
     port: int
     password: str
-    decode_responses: bool = True
-    ssl: bool = True
-    ssl_cert_reqs: Optional[str] = None
-    ssl_ca_certs: Optional[str] = None
+    # decode_responses: bool = True
+    # ssl: bool = True
+    # ssl_cert_reqs: Optional[str] = None
+    # ssl_ca_certs: Optional[str] = None
 
 
 @dataclass
@@ -118,10 +118,10 @@ class RedisManager:
                 host=self.config.host,
                 port=self.config.port,
                 password=self.config.password,
-                decode_responses=self.config.decode_responses,
-                ssl=self.config.ssl,
-                ssl_cert_reqs=self.config.ssl_cert_reqs,
-                ssl_ca_certs=self.config.ssl_ca_certs
+                # decode_responses=self.config.decode_responses,
+                # ssl=self.config.ssl,
+                # ssl_cert_reqs=self.config.ssl_cert_reqs,
+                # ssl_ca_certs=self.config.ssl_ca_certs
             )
         except Exception as e:
             logger.error(f"Redis 연결 오류: {str(e)}")
