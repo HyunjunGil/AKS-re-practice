@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from contextlib import contextmanager
 import logging
 from logging.config import dictConfig
+import random
+import string
 
 
 # 로깅 설정
@@ -102,7 +104,6 @@ class DatabaseManager:
             yield cursor, conn
         finally:
             cursor.close()
-            conn.close()
 
 
 class RedisManager:
@@ -1401,6 +1402,75 @@ def get_kafka_status():
             "message": f"Kafka 상태 조회 실패: {str(e)}",
             "timestamp": datetime.now().isoformat()
         }), 500
+
+
+def generate_random_message():
+    """랜덤한 메시지 생성"""
+    # 랜덤한 길이 (10-50자)
+    length = random.randint(10, 50)
+    
+    # 랜덤한 메시지 내용 생성
+    words = [
+        "안녕하세요", "테스트", "메시지", "랜덤", "데이터", "생성", "API", "호출",
+        "백엔드", "프론트엔드", "데이터베이스", "Redis", "Kafka", "Flask", "Python",
+        "개발", "프로그래밍", "코딩", "소프트웨어", "시스템", "아키텍처", "마이크로서비스",
+        "클라우드", "컨테이너", "쿠버네티스", "도커", "배포", "운영", "모니터링"
+    ]
+    
+    # 랜덤한 단어들을 조합하여 메시지 생성
+    message_parts = []
+    for _ in range(random.randint(3, 8)):
+        message_parts.append(random.choice(words))
+    
+    # 랜덤한 숫자와 특수문자 추가
+    random_numbers = ''.join(random.choices(string.digits, k=random.randint(2, 4)))
+    random_chars = ''.join(random.choices(string.ascii_letters, k=random.randint(2, 4)))
+    
+    # 메시지 조합
+    message = f"{' '.join(message_parts)} {random_numbers} {random_chars}"
+    
+    # 길이 조정
+    if len(message) > length:
+        message = message[:length]
+    elif len(message) < length:
+        message += " " + ''.join(random.choices(string.ascii_letters + string.digits, k=length - len(message)))
+    
+    return message.strip()
+
+
+@app.route('/db/random-message', methods=['POST'])
+def save_random_message():
+    """랜덤한 메시지 저장 (로그인 불필요)"""
+    try:
+        # 고정된 사용자 ID 사용
+        user_id = "test_hyunjun"
+        
+        # 랜덤한 메시지 생성
+        message_text = generate_random_message()
+        
+        # 메시지 저장
+        result = message_service.save_message(user_id, message_text)
+        
+        # 로깅
+        message_text = message_text[:30] + '...' if len(message_text) > 30 else message_text
+        logging_service.log_to_redis('random_message_insert', f"Random message saved: {message_text}", user_id)
+        logging_service.log_api_stats_async('/db/random-message', 'POST', 'success', user_id)
+        
+        return jsonify({
+            "status": "success",
+            "message": "랜덤 메시지가 저장되었습니다",
+            "data": {
+                "message_id": result["message_id"],
+                "message_text": message_text,
+                "user_id": user_id,
+                "timestamp": datetime.now().isoformat()
+            }
+        })
+        
+    except Exception as e:
+        logging_service.log_api_stats_async('/db/random-message', 'POST', 'error', 'anonymous')
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 
 if __name__ == '__main__':
     logger.info("=== Flask 앱 시작 ===")
