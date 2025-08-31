@@ -1,4 +1,4 @@
-fullnameOverride: "hyunjun-redis"
+fullnameOverride: "ssl-redis"
 
 image:
   registry: docker.io
@@ -15,7 +15,7 @@ auth:
   enabled: true
   sentinel: true
 
-  password: "hyunjun-redis"
+  password: "ssl-redis"
 
 master:
   containerPorts:
