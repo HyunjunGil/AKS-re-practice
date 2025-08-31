@@ -18,7 +18,7 @@ spec:
       containers:
       - name: hyunjun-backend
         image: ktech4.azurecr.io/hyunjun-backend:latest
-        imagePullPolicy: IfNotPresent
+        imagePullPolicy: Always
         ports:
         - containerPort: 5000
         env:
@@ -34,7 +34,7 @@ spec:
               name: backend-secrets
               key: MYSQL_PASSWORD
         - name: REDIS_HOST
-          value: "redis-master.default.svc.cluster.local"
+          value: "hyunjun-redis"
         - name: KAFKA_SERVERS
           value: "team-kafka.default.svc.cluster.local:9092"
         - name: REDIS_PASSWORD

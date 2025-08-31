@@ -1,4 +1,4 @@
-fullnameOverride: "local-redis"
+fullnameOverride: "hyunjun-redis"
 
 image:
   registry: docker.io
