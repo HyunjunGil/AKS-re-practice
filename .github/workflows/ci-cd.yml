@@ -57,3 +57,52 @@ jobs:
             -t ${{ secrets.ACR_LOGIN_SERVER }}/hyunjun-frontend:latest .
           docker push ${{ secrets.ACR_LOGIN_SERVER }}/hyunjun-frontend:${{ github.sha }}
           docker push ${{ secrets.ACR_LOGIN_SERVER }}/hyunjun-frontend:latest
+
+#   deploy:
+#     needs: [build-server, build-client]
+#     runs-on: ubuntu-latest
+#     if: github.ref == 'refs/heads/main'
+    
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v4
+
+#       - name: Set up kubectl
+#         uses: azure/setup-kubectl@v3
+#         with:
+#           version: 'latest'
+
+#       - name: Azure CLI Login
+#         uses: azure/login@v1
+#         with:
+#           creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+#       - name: Get AKS credentials
+#         run: |
+#           az aks get-credentials --resource-group ${{ secrets.AKS_RESOURCE_GROUP }} --name ${{ secrets.AKS_CLUSTER_NAME }} --overwrite-existing
+
+#       - name: Deploy to Kubernetes
+#         run: |
+#           # Backend 배포
+#           kubectl apply -f k8s/backend-secret.yaml
+#           kubectl apply -f k8s/backend-deployment.yaml
+          
+#           # Frontend 배포
+#           kubectl apply -f k8s/frontend-deployment.yaml
+          
+#           # Ingress 배포
+#           kubectl apply -f k8s/ingress.yaml
+
+#       - name: Wait for deployment rollout
+#         run: |
+#           kubectl rollout status deployment/hyunjun-backend -n hyunjun --timeout=300s
+#           kubectl rollout status deployment/hyunjun-frontend -n hyunjun --timeout=300s
+
+#       - name: Show deployment status
+#         run: |
+#           echo "=== Deployment Status ==="
+#           kubectl get pods -n hyunjun
+#           echo "=== Services ==="
+#           kubectl get svc -n hyunjun
+#           echo "=== Ingress ==="
+#           kubectl get ingress -n hyunjun
