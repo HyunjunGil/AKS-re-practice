@@ -1,21 +1,23 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: frontend
+  name: hyunjun-frontend
   namespace: hyunjun
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: frontend
+      app: hyunjun-frontend
   template:
     metadata:
       labels:
-        app: frontend
+        app: hyunjun-frontend
     spec:
+      imagePullSecrets:
+      - name: acr-secret
       containers:
-      - name: frontend
-        image: hyunjun-frontend:latest
+      - name: hyunjun-frontend
+        image: ktech4.azurecr.io/hyunjun-frontend:latest
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 80
@@ -23,13 +25,12 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: frontend-service
+  name: hyunjun-frontend-service
   namespace: hyunjun
 spec:
   type: NodePort
   selector:
-    app: frontend
+    app: hyunjun-frontend
   ports:
   - port: 80
     targetPort: 80
-    nodePort: 30080 

@@ -1,27 +1,29 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: backend
+  name: hyunjun-backend
   namespace: hyunjun
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: backend
+      app: hyunjun-backend
   template:
     metadata:
       labels:
-        app: backend
+        app: hyunjun-backend
     spec:
+      imagePullSecrets:
+      - name: acr-secret
       containers:
-      - name: backend
-        image: hyunjun-backend:latest
+      - name: hyunjun-backend
+        image: ktech4.azurecr.io/hyunjun-backend:latest
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 5000
         env:
         - name: MYSQL_HOST
-          value: "local-mariadb.infra.svc.cluster.local"
+          value: "hyunjun-mariadb"
         - name: MYSQL_USER
           value: "testuser"
         - name: MYSQL_DATABASE
@@ -32,9 +34,9 @@ spec:
               name: backend-secrets
               key: MYSQL_PASSWORD
         - name: REDIS_HOST
-          value: "local-redis-master.infra.svc.cluster.local"
+          value: "redis-master.default.svc.cluster.local"
         - name: KAFKA_SERVERS
-          value: "local-kafka.infra.svc.cluster.local:9092"
+          value: "team-kafka.default.svc.cluster.local:9092"
         - name: REDIS_PASSWORD
           valueFrom:
             secretKeyRef:
@@ -56,12 +58,12 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: backend-service
+  name: hyunjun-backend-service
   namespace: hyunjun
 spec:
   type: ClusterIP
   selector:
-    app: backend
+    app: hyunjun-backend
   ports:
   - port: 5000
     targetPort: 5000 

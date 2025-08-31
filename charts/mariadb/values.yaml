@@ -1,4 +1,4 @@
-fullnameOverride: "local-mariadb"
+fullnameOverride: "hyunjun-mariadb"
 image:
   registry: docker.io
   repository: bitnamilegacy/mariadb
