@@ -18,6 +18,9 @@ from logging.config import dictConfig
 import random
 import string
 
+# OpenTelemetry 통합
+from telemetry import telemetry_manager
+
 
 # 로깅 설정
 dictConfig({
@@ -592,6 +595,13 @@ def login_required(f):
 app = Flask(__name__)
 CORS(app, supports_credentials=True)
 app.secret_key = os.getenv('FLASK_SECRET_KEY', 'your-secret-key-here')
+
+# OpenTelemetry 설정 초기화
+try:
+    telemetry_manager.setup_telemetry(app)
+    logger.info("✅ OpenTelemetry 설정이 완료되었습니다.")
+except Exception as e:
+    logger.error(f"❌ OpenTelemetry 설정 실패: {str(e)}")
 
 # 설정 로드
 db_config = DatabaseConfig(
